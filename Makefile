@@ -1,0 +1,37 @@
+SHELL := /bin/bash
+
+CC = gcc
+CFLAGS = -m32 -ffreestanding -nostdinc -nostdlib -fno-pie -fno-stack-protector -mno-sse -mno-sse2 -Wall
+LDFLAGS = -T link.ld -m elf_i386 -nostdlib
+
+all: clean os.img storage.img
+
+boot.bin: boot_entry.asm
+	nasm -f bin -o boot.bin boot_entry.asm
+
+hexa.o: hexa.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel.elf: hexa.o link.ld
+	ld $(LDFLAGS) -o $@ hexa.o
+
+kernel.bin: kernel.elf
+	objcopy -O binary $< $@
+
+storage.img:
+	dd if=/dev/zero bs=512 count=256 of=storage.img 2>/dev/null
+
+os.img: boot.bin kernel.bin
+	cat boot.bin kernel.bin > os.img
+	@truncate -s 1474560 os.img
+	@echo "[✓] OS image: $@"
+
+run: os.img storage.img
+	@echo "[*] Booting HEXA OS in QEMU..."
+	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic
+
+clean:
+	rm -f *.o *.elf *.bin os.img storage.img
+	@echo "[✓] Cleaned."
+
+.PHONY: all run clean
