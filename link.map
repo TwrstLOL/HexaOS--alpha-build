@@ -1,0 +1,177 @@
+
+Merging object attributes
+
+
+Merging program properties
+
+
+There are no discarded input sections
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+                0x00010000                        . = 0x10000
+
+.text           0x00010000     0xae97
+ *(.text.entry)
+ .text.entry    0x00010000      0x464 hexa.o
+                0x00010000                kernel_entry
+                0x00010000                kernel_main
+ *(.text)
+ .text          0x00010464     0xaa33 hexa.o
+                0x000104d4                strcmp
+                0x00010513                strcpy
+                0x00010543                strlen
+                0x0001056a                memset
+                0x00010598                memcpy
+                0x000105d5                strcat
+                0x00010615                atoi
+                0x000106a5                itoa
+                0x00010a85                get_update_in_progress_flag
+                0x00010aa8                get_rtc_register
+                0x00010ac8                pci_config_read_word
+                0x00010b3e                update_cursor
+                0x00010bcc                put_char
+                0x00010d9a                print_string
+                0x00010dce                print_color
+                0x00010dfe                clear_screen
+                0x00010e7c                get_char
+                0x0001102c                get_line
+                0x00011345                sleep_ticks
+                0x0001136e                rand
+                0x00011395                cmd_help
+                0x000114e6                cmd_kaput
+                0x000114f9                cmd_date
+                0x00011759                cmd_cpuinfo
+                0x0001183d                cmd_lspci
+                0x000119aa                cmd_calc
+                0x00011ba6                cmd_ascii
+                0x00011c18                cmd_palette
+                0x00011ca6                cmd_hex
+                0x00011cef                cmd_reverse
+                0x00011d4a                cmd_matrix
+                0x00011de7                cmd_guess
+                0x00011e95                cmd_panic
+                0x00011fc4                kb_hit
+                0x00012000                getch_nb
+                0x000120df                cmd_snake
+                0x00012714                cmd_tictactoe
+                0x00012aa9                cmd_memory
+                0x00012d10                cmd_hangman
+                0x00013158                cmd_neofetch
+                0x00013682                init_users
+                0x000136cf                do_login
+                0x000139e7                cmd_touch
+                0x00013c29                cmd_ls
+                0x00013e82                cmd_cat
+                0x00013ef6                cmd_rm
+                0x00013faf                cmd_write
+                0x00014194                cmd_append
+                0x000143cb                cmd_edit
+                0x000145a5                cmd_useradd
+                0x000146e8                cmd_passwd
+                0x0001478e                cmd_login
+                0x00014867                cmd_logout
+                0x00014875                cmd_chmod
+                0x00014ae5                cmd_chown
+                0x00014cc6                cmd_banner
+                0x00014d97                cmd_yes
+                0x00014dde                cmd_time
+                0x00014f22                cmd_fortune
+                0x00014fbd                cmd_shutdown
+                0x00014fe1                cmd_hostname
+                0x00015051                cmd_id
+                0x000150e4                cmd_wc
+                0x00015275                cmd_tail
+                0x00015502                cmd_hist
+                0x000155b7                cmd_which
+                0x0001565e                cmd_true
+                0x00015664                cmd_false
+                0x0001566a                cmd_sort
+                0x000158c0                cmd_env
+                0x00015974                cmd_alias
+                0x00015bb9                cmd_unalias
+                0x00015cb9                cmd_grep
+                0x00016021                cmd_find
+                0x000160a8                cmd_diff
+                0x000165a7                cmd_uniq
+                0x00016769                cmd_pwd
+                0x0001679f                cmd_mkdir
+                0x000168d3                cmd_tee
+                0x00016b21                cmd_basename
+                0x00016b9b                cmd_dirname
+                0x00016c47                cmd_ps
+                0x00016ccb                cmd_kill
+                0x00016d34                cmd_seq
+                0x00016e96                cmd_tr
+                0x00017131                cmd_who
+                0x000171d9                cmd_cowsay
+                0x00017303                cmd_cmatrix
+                0x00017605                cmd_dice
+                0x000177c7                cmd_8ball
+                0x00017862                cmd_logo
+                0x000178e0                cmd_sl
+                0x000179dd                cmd_morse
+                0x00017afc                cmd_russian
+                0x00017b61                cmd_insult
+                0x00017bcd                cmd_excuse
+                0x00017c39                cmd_compliment
+                0x00017ca5                cmd_hack
+                0x00017da2                cmd_bsod
+
+.iplt           0x0001ae97        0x0
+ .iplt          0x0001ae97        0x0 hexa.o
+
+.rodata         0x0001aea0     0x2551
+ *(.rodata)
+ .rodata        0x0001aea0     0x2551 hexa.o
+                0x0001aec0                kbd_map
+                0x0001af40                kbd_map_shift
+
+.note.gnu.property
+                0x0001d3f4       0x28
+ .note.gnu.property
+                0x0001d3f4       0x28 hexa.o
+
+.eh_frame       0x0001d41c      0xfe0
+ .eh_frame      0x0001d41c      0xfe0 hexa.o
+
+.rel.dyn        0x0001e3fc        0x0
+ .rel.got       0x0001e3fc        0x0 hexa.o
+ .rel.iplt      0x0001e3fc        0x0 hexa.o
+ .rel.text.entry
+                0x0001e3fc        0x0 hexa.o
+
+.data           0x0001e400     0x55dc
+ *(.data)
+ .data          0x0001e400     0x55dc hexa.o
+                0x000239dc                        _bss_start = .
+
+.got            0x000239dc        0x0
+ .got           0x000239dc        0x0 hexa.o
+
+.got.plt        0x000239dc        0x0
+ .got.plt       0x000239dc        0x0 hexa.o
+
+.igot.plt       0x000239dc        0x0
+ .igot.plt      0x000239dc        0x0 hexa.o
+
+.bss            0x000239e0     0x9ba0
+ *(.bss)
+ .bss           0x000239e0     0x9ba0 hexa.o
+                0x0002d580                        _bss_end = .
+LOAD hexa.o
+OUTPUT(kernel.elf elf32-i386)
+
+.comment        0x00000000       0x1b
+ .comment       0x00000000       0x1b hexa.o
+                                 0x1c (size before relaxing)
+
+.note.GNU-stack
+                0x00000000        0x0
+ .note.GNU-stack
+                0x00000000        0x0 hexa.o
