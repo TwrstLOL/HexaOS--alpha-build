@@ -1,6 +1,9 @@
 [BITS 16]
 [ORG 0x7C00]
 
+; Kernel sector count - patched at build time by Makefile (offset 27)
+; Default 160, Makefile overwrites byte at offset 27
+
 start:
     cli
     cld
@@ -16,15 +19,16 @@ start:
     out 0x92, al
 
     ; Load kernel from floppy using CHS
+    ; Use multiple 128-sector banks to handle kernels > 64KB
     mov ax, 0x1000
     mov es, ax
     xor bx, bx
 
-    mov si, 103    ; kernel is 52412 bytes = 103 sectors (max 128 before BX wraps)
+    mov si, 160  ; patched by Makefile
     mov ch, 0
-    mov cl, 2       ; start at sector 2
+    mov cl, 2               ; start at sector 2
     mov dh, 0
-    mov dl, 0       ; floppy drive 0
+    mov dl, 0               ; floppy drive 0
 
 .read_loop:
     mov ah, 0x02
@@ -44,6 +48,18 @@ start:
     inc ch
 .no_cyl_inc:
 .no_ch_wrap:
+
+    ; Check if BX wrapped past segment boundary
+    cmp bx, 0
+    jne .no_seg_wrap
+    ; BX wrapped: advance ES by 0x1000 (64KB)
+    push ax
+    mov ax, es
+    add ax, 0x1000
+    mov es, ax
+    pop ax
+.no_seg_wrap:
+
     dec si
     jnz .read_loop
 

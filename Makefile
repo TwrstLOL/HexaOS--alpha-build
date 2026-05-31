@@ -6,8 +6,13 @@ LDFLAGS = -T link.ld -m elf_i386 -nostdlib
 
 all: clean os.img storage.img
 
-boot.bin: boot_entry.asm
+boot.bin: boot_entry.asm kernel.bin
 	nasm -f bin -o boot.bin boot_entry.asm
+	# Patch boot.bin at offset 27 with actual kernel sector count (mov si, imm8)
+	ksect=$$(( $$(stat -c '%s' kernel.bin) / 512 + 1 )); \
+	[ $$ksect -gt 254 ] && ksect=254; \
+	printf '%b' "\\x$$(printf '%02x' $$ksect)" | dd of=boot.bin bs=1 seek=27 count=1 conv=notrunc 2>/dev/null; \
+	echo "[*] Kernel sectors: $$ksect"
 
 hexa.o: hexa.c
 	$(CC) $(CFLAGS) -c $< -o $@
