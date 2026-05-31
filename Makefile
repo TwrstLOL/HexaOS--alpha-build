@@ -1,8 +1,10 @@
 SHELL := /bin/bash
 
 CC = gcc
-CFLAGS = -m32 -ffreestanding -nostdinc -nostdlib -fno-pie -fno-stack-protector -mno-sse -mno-sse2 -Wall
+CFLAGS = -m32 -ffreestanding -nostdinc -nostdlib -fno-pie -fno-stack-protector -mno-sse -mno-sse2 -Wall -Wextra -I.
 LDFLAGS = -T link.ld -m elf_i386 -nostdlib
+
+OBJECTS = kernel_entry.o interrupts.o paging.o scheduler.o syscall.o hexa.o
 
 all: clean os.img storage.img
 
@@ -14,11 +16,14 @@ boot.bin: boot_entry.asm kernel.bin
 	printf '%b' "\\x$$(printf '%02x' $$ksect)" | dd of=boot.bin bs=1 seek=27 count=1 conv=notrunc 2>/dev/null; \
 	echo "[*] Kernel sectors: $$ksect"
 
-hexa.o: hexa.c
+kernel_entry.o: kernel_entry.asm
+	nasm -f elf32 -o $@ $<
+
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-kernel.elf: hexa.o link.ld
-	ld $(LDFLAGS) -o $@ hexa.o
+kernel.elf: $(OBJECTS) link.ld
+	ld $(LDFLAGS) -o $@ $(OBJECTS) -Map=link.map
 
 kernel.bin: kernel.elf
 	objcopy -O binary $< $@

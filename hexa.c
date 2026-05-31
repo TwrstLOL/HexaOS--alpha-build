@@ -1,15 +1,11 @@
-// HEXA OS Kernel
-
-// Manual type definitions
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-typedef unsigned int size_t;
-
-// BSS symbols defined in linker script
-extern char _bss_start[], _bss_end[];
+#include "types.h"
+#include "interrupts.h"
+#include "paging.h"
+#include "scheduler.h"
 
 #define VGA_BUFFER ((uint16_t *)0xB8000)
+
+extern char _bss_start[], _bss_end[];
 
 static int cursor_x = 0;
 static int cursor_y = 0;
@@ -56,36 +52,6 @@ static struct {
 } f_table[MAX_FILES];
 static int f_count = 0;
 static int disk_ok = 0;
-
-static inline void outb(uint16_t port, uint8_t val) {
-  __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
-}
-
-static inline uint8_t inb(uint16_t port) {
-  uint8_t ret;
-  __asm__ volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
-  return ret;
-}
-
-static inline void outl(uint16_t port, uint32_t val) {
-  __asm__ volatile("outl %0, %1" : : "a"(val), "Nd"(port));
-}
-
-static inline uint32_t inl(uint16_t port) {
-  uint32_t ret;
-  __asm__ volatile("inl %1, %0" : "=a"(ret) : "Nd"(port));
-  return ret;
-}
-
-static inline uint16_t inw(uint16_t port) {
-  uint16_t ret;
-  __asm__ volatile("inw %1, %0" : "=a"(ret) : "Nd"(port));
-  return ret;
-}
-
-static inline void outw(uint16_t port, uint16_t val) {
-  __asm__ volatile("outw %0, %1" : : "a"(val), "Nd"(port));
-}
 
 // ----------------- String Library -----------------
 int strcmp(const char *s1, const char *s2) {
@@ -364,10 +330,10 @@ static int hist_count = 0;
 static int hist_scroll = -1;
 
 char get_char(int *special_key) {
-  uint8_t scancode;
   if (special_key)
     *special_key = 0;
   while (1) {
+    // Check serial port
     if (inb(0x3F8 + 5) & 1) {
       char c = inb(0x3F8);
       if (c == '\r')
@@ -390,26 +356,34 @@ char get_char(int *special_key) {
       }
       return c;
     }
+    // Check IRQ keyboard buffer
+    int c = kb_getchar();
+    if (c > 0) {
+      // Map arrow keys from IRQ keyboard
+      // We handle them through special escape sequences
+      return (char)c;
+    }
+    // Poll keyboard directly as fallback
     if (inb(0x64) & 1) {
-      scancode = inb(0x60);
-      if (scancode == 0x2A || scancode == 0x36) {
+      uint8_t sc = inb(0x60);
+      if (sc == 0x2A || sc == 0x36) {
         shift_pressed = 1;
         continue;
       }
-      if (scancode == 0xAA || scancode == 0xB6) {
+      if (sc == 0xAA || sc == 0xB6) {
         shift_pressed = 0;
         continue;
       }
-      if (scancode == 0x48 && special_key) {
+      if (sc == 0x48 && special_key) {
         *special_key = 1;
         return 0;
-      } // UP ARROW
-      if (scancode == 0x50 && special_key) {
+      }
+      if (sc == 0x50 && special_key) {
         *special_key = 2;
         return 0;
-      } // DOWN ARROW
-      if (!(scancode & 0x80) && scancode < 128) {
-        char c = shift_pressed ? kbd_map_shift[scancode] : kbd_map[scancode];
+      }
+      if (!(sc & 0x80) && sc < 128) {
+        char c = shift_pressed ? kbd_map_shift[sc] : kbd_map[sc];
         if (c)
           return c;
       }
@@ -490,7 +464,7 @@ uint32_t rand() {
 static int find_file(const char *name);
 
 void cmd_help() {
-  print_string("HEXA OS 4.0 Commands\n");
+  print_string("HEXA OS 5.0 Commands\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep\n");
   print_string("          hostname, uptime, true, false, shutdown\n");
@@ -1076,47 +1050,101 @@ void cmd_neofetch(void) {
 
   char buf[16];
   clear_screen();
-  print_color("       __________\n", 0x0B);
-  print_color("      /  HEXA   \\\n", 0x0B);
-  print_color("     /  OS 4.0  \\\n", 0x0B);
-  print_color("    /____________\\\n", 0x0B);
-  print_color("       HEXA OS\n", 0x0A);
-  print_string(" -----------------------------\n");
-  print_string(" OS:       HEXA OS 4.0 i386\n");
-  print_string(" Host:     "); print_string(hostname_str); print_string("\n");
-  print_string(" Version:  4.0 \"Secure Edition\"\n");
-  print_string(" CPU:      "); print_string(v); print_string("\n");
-  print_string(" Family:   ");
+  print_color("    __________________________\n", 0x0B);
+  print_color("   /   H E X A   O S   5.0   \\\n", 0x0B);
+  print_color("  |  Paging  ·  Scheduler     |\n", 0x0B);
+  print_color("  |  User Mode  ·  Syscalls   |\n", 0x0B);
+  print_color("  |  32-bit Protected Mode    |\n", 0x0B);
+  print_color("   \\________________________/\n", 0x0B);
+  print_string(" ┌──────────────────────────────┐\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 5.0 i386", 0x0A); print_string("         │\n");
+  print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
+  for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
+  print_string("│\n");
+  print_string(" │  Version:  "); print_color("5.0 \"Paging Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Kernel:   "); print_color(v, 0x0A); 
+  for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
+  print_string("│\n");
+  print_string(" │  Family:   ");
   itoa((a >> 8) & 0xF, buf, 10); print_string(buf);
   print_string("  Model: ");
   itoa((a >> 4) & 0xF, buf, 10); print_string(buf);
-  print_string("\n");
-  print_string(" Uptime:   ");
+  print_string("          │\n");
+  // Paging / MMU info
+  uint32_t cr0_val;
+  __asm__ volatile("mov %%cr0, %0" : "=r"(cr0_val));
+  print_string(" │  Paging:  ");
+  print_color((cr0_val & 0x80000000) ? "Enabled  (4KB pages)" : "Disabled", 
+              (cr0_val & 0x80000000) ? 0x0A : 0x0C);
+  print_string("    │\n");
+  // Interrupts
+  print_string(" │  IRQs:    ");
+  print_color("PIC remapped  PIT@100Hz", 0x0A);
+  print_string("    │\n");
+  // Scheduler / tasks
+  extern int num_tasks;
+  print_string(" │  Tasks:   ");
+  itoa(num_tasks, buf, 10); print_string(buf);
+  print_string(" running  Scheduler: ");
+  print_color("RR", 0x0A);
+  print_string("    │\n");
+  // Uptime
+  print_string(" │  Uptime:  ");
   itoa(ticks, buf, 10); print_string(buf);
-  print_string(" ticks\n");
-  print_string(" Users:    ");
+  print_string(" ticks");
+  for (int sp = 5; sp < 16; sp++) put_char(' ', 0x0F);
+  print_string("│\n");
+  // Users
+  print_string(" │  Users:   ");
   itoa(u_count, buf, 10); print_string(buf);
-  print_string("  Current: ");
+  print_string(" registered  Cur: ");
   print_string(u_table[u_cur].name);
-  print_string("\n");
-  print_string(" Files:    ");
+  for (int sp = strlen(u_table[u_cur].name); sp < 10; sp++) put_char(' ', 0x0F);
+  print_string("│\n");
+  // Files
+  print_string(" │  Files:   ");
   itoa(f_count, buf, 10); print_string(buf);
   print_string("  Disk: ");
-  print_string(disk_ok ? "online" : "offline");
-  print_string("\n");
-  print_string(" Memory:   4000B VGA  Commands: 70+\n");
-  print_string(" Date:     20");
+  print_string(disk_ok ? "online " : "offline");
+  print_string("             │\n");
+  // Date/time
+  print_string(" │  Date:    20");
   itoa(yr, buf, 10); print_string(buf);
-  print_string("-"); itoa(mon, buf, 10); print_string(buf);
-  print_string("-"); itoa(day, buf, 10); print_string(buf);
-  print_string("  "); itoa(h, buf, 10); print_string(buf);
-  print_string(":"); itoa(m, buf, 10); print_string(buf);
-  print_string(":"); itoa(s, buf, 10); print_string(buf);
-  print_string("\n");
-  print_string(" Shell:    HEXA CLI v4.0\n");
-  print_string(" Terminal: VGA Text Mode 80x25\n");
-  print_string(" Packages: 20+ ayo packages\n");
-  print_string(" -----------------------------\n");
+  print_string("-"); 
+  if (mon < 10) { put_char('0', 0x0F); }
+  itoa(mon, buf, 10); print_string(buf);
+  print_string("-"); 
+  if (day < 10) { put_char('0', 0x0F); }
+  itoa(day, buf, 10); print_string(buf);
+  print_string("  ");
+  if (h < 10) { put_char('0', 0x0F); }
+  itoa(h, buf, 10); print_string(buf);
+  print_string(":"); 
+  if (m < 10) { put_char('0', 0x0F); }
+  itoa(m, buf, 10); print_string(buf);
+  print_string(":"); 
+  if (s < 10) { put_char('0', 0x0F); }
+  itoa(s, buf, 10); print_string(buf);
+  print_string("          │\n");
+  // Memory
+  print_string(" │  Memory:  VGA 4000B  Heap: ");
+  itoa(1024, buf, 10); print_string(buf); print_string("KB");
+  print_string("       │\n");
+  // Commands / features
+  print_string(" │  Shell:   HEXA CLI v5.0  80x25  │\n");
+  print_string(" │  Cache:   ");
+  print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
+  print_string("   │\n");
+  print_string(" │  Kernel:  ");
+  print_color("PageFault+GPF handler", 0x0A);
+  print_string("      │\n");
+  print_string(" │  Syscall: ");
+  print_color("int 0x80  (4 syscalls)", 0x0A);
+  print_string("      │\n");
+  print_string(" │  User:    ");
+  print_color("Ring3 TSS  Context switch", 0x0A);
+  print_string("  │\n");
+  print_string(" └──────────────────────────────┘\n");
   print_string("\nPress any key to continue...");
   get_char(0);
   clear_screen();
@@ -1138,12 +1166,12 @@ void do_login(void) {
   char name[NAME_MAX], pass[NAME_MAX];
   while (1) {
     clear_screen();
-    print_color(
-      "╭──────────────────────────────╮\n"
-      "│                              │\n"
-      "│         H E X A   O S        │\n"
-      "│                              │\n"
-      "╰──────────────────────────────╯\n", 0x0B);
+  print_color(
+    "╭──────────────────────────────╮\n"
+    "│         H E X A   O S        │\n"
+    "│        Version 5.0           │\n"
+    "│   Paging · Scheduler · Sys   │\n"
+    "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
     get_line(name, NAME_MAX);
 
@@ -2007,14 +2035,17 @@ void cmd_8ball(void) {
 
 void cmd_logo(void) {
   if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
-  print_color("  +----------------------------------+\n", 0x0B);
-  print_color("  |  H     H  EEEEEEE  X     X    AAA  |\n", 0x0B);
-  print_color("  |  H     H  E        X     X   A   A |\n", 0x0B);
-  print_color("  |  HHHHHHH  EEEEE    X     X   AAAAA |\n", 0x0B);
-  print_color("  |  H     H  E        X     X   A   A |\n", 0x0A);
-  print_color("  |  H     H  EEEEEEE  X     X   A   A |\n", 0x0A);
-  print_color("  |          H E X A  4 . 0           |\n", 0x0A);
-  print_color("  +----------------------------------+\n", 0x0B);
+  print_color("  ╔══════════════════════════════════╗\n", 0x0B);
+  print_color("  ║  H   H  EEEEE  X   X   AAAAA    ║\n", 0x0B);
+  print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0B);
+  print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
+  print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
+  print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
+  print_color("  ║         5.0  PAGING EDITION      ║\n", 0x0E);
+  print_color("  ║                                  ║\n", 0x0A);
+  print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
+  print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
+  print_color("  ╚══════════════════════════════════╝\n", 0x0B);
 }
 
 void cmd_sl(void) {
@@ -2158,9 +2189,9 @@ static struct pkg_entry pkg_db[] = {
     {"memory.txt","Memory: watch color sequence and repeat it!"},
   }, 4},
   {"docs", {
-    {"readme.txt","HEXA OS 4.0 - A 32-bit protected mode OS for i386."},
+    {"readme.txt","HEXA OS 5.0 - Paging, interrupts, scheduler, syscalls, user mode!"},
     {"commands.txt","Type 'help' to list all available commands (70+)."},
-    {"about.txt","HEXA OS 4.0: Secure Edition - hashed passwords, permissions, grep, diff, alias, more!"},
+    {"about.txt","HEXA OS 5.0: Paging Edition - IDT, PIC, PIT, paging, kmalloc, scheduler, syscalls!"},
   }, 3},
   {"fun", {
     {"quotes.txt","\"The only constant is change.\" - Heraclitus"},
@@ -2601,7 +2632,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 3.1 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 5.0 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "touch") == 0) { cmd_touch(args); save_data(); return 1; }
   if (strcmp(cmd, "ls") == 0) { cmd_ls(); return 1; }
@@ -2736,19 +2767,54 @@ void kernel_main(void) __attribute__((section(".text.entry")));
 // Alias kernel_entry to kernel_main for bootloader compatibility
 __asm__(".globl kernel_entry; .set kernel_entry, kernel_main;");
 
-void kernel_main(void) {
-  // inline asm check removed - serial not initialized yet
+// User-space entry point
+void _user_entry(void) {
+    while (1) {
+        uint32_t t;
+        __asm__ volatile("mov $3, %%eax; int $0x80" : "=a"(t));
+        for (volatile int i = 0; i < 200000; i++);
+    }
+}
 
+void kernel_main(void) {
   for (char *p = _bss_start; p < _bss_end; p++) *p = 0;
 
   rseed = get_rtc_register(0x00);
+
+  // Initialize kernel subsystems
+  print_color("[BOOT] Setting up GDT...\n", 0x0A);
+  setup_gdt();
+
+  print_color("[BOOT] Setting up IDT...\n", 0x0A);
+  idt_init();
+  pic_remap();
+  pit_init(100); // 100 Hz
+
+  print_color("[BOOT] Enabling paging...\n", 0x0A);
+  pmm_init(32 * 1024 * 1024, (uint32_t)&_kernel_end);
+  paging_init();
+  kheap_init();
+
+  print_color("[BOOT] Initializing scheduler...\n", 0x0A);
+  scheduler_init();
+
+  print_color("[BOOT] Enabling interrupts...\n", 0x0A);
+  sti();
+
+  // Create a user-space task
+  int upid = task_create(_user_entry);
+  if (upid >= 0) {
+      print_color("[BOOT] User task created, PID=", 0x0A);
+      char nb[16]; int bi = 0;
+      int n = upid; if (n == 0) { nb[bi++] = '0'; } else { while (n) { nb[bi++] = '0' + (n % 10); n /= 10; } nb[bi] = 0; for (int k=0;k<bi/2;k++){char t=nb[k];nb[k]=nb[bi-1-k];nb[bi-1-k]=t;} }
+      print_color(nb, 0x0A);
+      print_color("\n", 0x0A);
+  }
 
   init_users();
   ata_init();
   load_data();
   do_login();
-
-  outb(0x3F8, '#'); outb(0x3F8, ' ');
 
   serial_putc('['); serial_putc('O'); serial_putc('K'); serial_putc(']'); serial_putc('\n');
 
