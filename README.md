@@ -1,5 +1,7 @@
 # HexaOS — Alpha Build
 
+> **Version 4.0 is here!** Fresh features, improvements, and fixes — check the changelog below.
+
 A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a floppy disk image via QEMU.
 
 ## Features
@@ -45,6 +47,15 @@ make clean
 |---------|----------|------|
 | `root`  | `root`   | Admin — can use `ayo` to install/remove packages |
 | `user`  | `user`   | Standard user |
+
+## What's New in v4.0
+
+- **Dynamic help menu** — `help` now adapts to installed packages
+- **Password fixes** — `passwd` now correctly updates the user database
+- **`.fun` package gate** — games and fun commands require the `games` package (`ayo add games`)
+- **Improved bootloader** — fixed sector count patch and CHS wrap bug
+- **HEXA OS logo** — new boot splash
+- **Linker map** — build now outputs `link.map` for debugging
 
 ## Warnings
 
