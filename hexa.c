@@ -506,12 +506,13 @@ void cmd_help() {
   print_string("          diese, who\n");
   print_string(" Unix:    alias, unalias, ps, kill, basename, dirname\n");
   print_string("          seq, tr, tee\n");
-  print_string(" Fun:     banner, fortune, yes, time, cowsay, cmatrix\n");
-  print_string("          logo, sl, dice, 8ball, russian, insult\n");
-  print_string("          excuse, compliment, hack, bsod\n");
-  print_string(" Info:    uname, uptime, about, mem, beep, history\n");
+  if (find_file(".fun") >= 0)
+    print_string(" Fun:     banner, fortune, yes, time, cowsay, cmatrix\n"
+                 "          logo, sl, dice, 8ball, russian, insult\n"
+                 "          excuse, compliment, hack, bsod\n");
   if (find_file(".games") >= 0)
     print_string(" Games:   snake, tictactoe, hangman, memory\n");
+  print_string(" Info:    uname, uptime, about, mem, beep, history\n");
   print_string("------------------------------------\n");
   print_string(" Pkg mgmt: ayo help\n");
 }
@@ -1430,6 +1431,7 @@ void cmd_chown(const char *args) {
 
 // ---- Simple Features ----
 void cmd_banner(const char *text) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   if (!text[0]) { print_string("Usage: banner <text>\n"); return; }
   int len = strlen(text);
   if (len > 60) { print_string("Text too long.\n"); return; }
@@ -1443,6 +1445,7 @@ void cmd_banner(const char *text) {
 }
 
 void cmd_yes(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   print_string("Press any key to stop...\n");
   while (!kb_hit()) {
     print_string("y ");
@@ -1453,6 +1456,7 @@ void cmd_yes(void) {
 }
 
 void cmd_time(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   while (get_update_in_progress_flag());
   uint8_t s = get_rtc_register(0x00);
   uint8_t m = get_rtc_register(0x02);
@@ -1473,6 +1477,7 @@ void cmd_time(void) {
 }
 
 void cmd_fortune(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   const char *quotes[] = {
     "Hello, World!",
     "The only constant is change.",
@@ -1908,6 +1913,7 @@ void cmd_who(void) {
 
 // ---- New Fun Commands ----
 void cmd_cowsay(const char *text) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   if (!text[0]) { print_string("Usage: cowsay <text>\n"); return; }
   int len = strlen(text); if (len > 50) len = 50;
   print_string(" ");
@@ -1925,6 +1931,7 @@ void cmd_cowsay(const char *text) {
 }
 
 void cmd_cmatrix(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
 #define CM_COLS 50
 #define CM_ROWS 16
   int drop[CM_COLS], delay[CM_COLS];
@@ -1965,6 +1972,7 @@ void cmd_cmatrix(void) {
 }
 
 void cmd_dice(const char *args) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   int num = 1, sides = 6;
   if (args[0]) {
     char n[8]={0}, s[8]={0}; int i=0,j=0;
@@ -1985,6 +1993,7 @@ void cmd_dice(const char *args) {
 }
 
 void cmd_8ball(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   const char *r[] = {
     "Yes.","No.","Maybe.","Ask again later.",
     "Definitely.","I doubt it.","Without a doubt.",
@@ -1997,6 +2006,7 @@ void cmd_8ball(void) {
 }
 
 void cmd_logo(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   print_color("  +----------------------------------+\n", 0x0B);
   print_color("  |  H     H  EEEEEEE  X     X    AAA  |\n", 0x0B);
   print_color("  |  H     H  E        X     X   A   A |\n", 0x0B);
@@ -2008,6 +2018,7 @@ void cmd_logo(void) {
 }
 
 void cmd_sl(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   int frame = 0;
   print_string("Press any key to stop...\n");
   while (1) {
@@ -2035,6 +2046,7 @@ void cmd_sl(void) {
 }
 
 void cmd_morse(const char *text) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   if (!text[0]) { print_string("Usage: morse <text>\n"); return; }
   const char *morse[] = {
     ".-","-...","-.-.","-..",".","..-.","--.","....","..",".---",
@@ -2052,6 +2064,7 @@ void cmd_morse(const char *text) {
 }
 
 void cmd_russian(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   print_string("Russian Roulette... *spin* *click* ... ");
   sleep_ticks(3000);
   if ((rand() % 6) == 0) {
@@ -2064,6 +2077,7 @@ void cmd_russian(void) {
 
 // ---- More Fun ----
 void cmd_insult(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   const char *r[] = {
     "Your code is so bad, rm -rf / is an improvement.",
     "You make segfaults look like features.",
@@ -2076,6 +2090,7 @@ void cmd_insult(void) {
 }
 
 void cmd_excuse(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   const char *r[] = {
     "The bit bucket overflowed.",
     "Someone reversed the neutron flow.",
@@ -2088,6 +2103,7 @@ void cmd_excuse(void) {
 }
 
 void cmd_compliment(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   const char *r[] = {
     "Your kernel is sexier than a naked CPU.",
     "Your code is so clean it sparkles.",
@@ -2100,6 +2116,7 @@ void cmd_compliment(void) {
 }
 
 void cmd_hack(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   print_color("HACK SEQUENCE INITIATED\n", 0x0A);
   for (int i = 0; i < 15; i++) {
     print_string("["); for (int j = 0; j < 15; j++) put_char(j < i ? '#' : ' ', 0x0A);
@@ -2112,6 +2129,7 @@ void cmd_hack(void) {
 }
 
 void cmd_bsod(void) {
+  if (find_file(".fun") < 0) { print_string("Package required: ayo add fun\n"); print_string("(use 'diese' if not root)\n"); return; }
   clear_screen();
   current_color = 0x1F;
   for (int i = 0; i < 80 * 25; i++) VGA_BUFFER[i] = (0x1F << 8) | ' ';
@@ -2544,7 +2562,12 @@ static void load_data(void) {
 
 // ---- Command Dispatch ----
 static int execute_cmd(const char *cmd, char *args) {
-  if (strcmp(cmd, "help") == 0) { cmd_help(); return 1; }
+  if (strcmp(cmd, "help") == 0) {
+    if (args[0] && strcmp(args, "refresh") == 0) {
+      print_string("Help menu refreshed.\n");
+    }
+    cmd_help(); return 1;
+  }
   if (strcmp(cmd, "echo") == 0) { print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "clear") == 0) { clear_screen(); return 1; }
   if (strcmp(cmd, "reboot") == 0) { outb(0x64, 0xFE); while (1); return 1; }
@@ -2690,9 +2713,9 @@ static int execute_cmd(const char *cmd, char *args) {
     if (!args[0]) { print_string("Usage: diese <command> [args]\n"); return 1; }
     if (u_cur == 0) { print_string("Already root.\n"); return 1; }
     char pw[32];
-    print_string("root password: ");
+    print_string("password: ");
     get_line(pw, 32);
-    if (!check_pwd(pw, u_table[0].pass_hash)) { print_color("Access denied.\n", 0x0C); return 1; }
+    if (!check_pwd(pw, u_table[u_cur].pass_hash)) { print_color("Access denied.\n", 0x0C); return 1; }
     char c[32]={0}, a[96]={0}; int i=0,j=0;
     while(args[i]&&args[i]!=' '&&j<31){c[j++]=args[i++];}
     while(args[i]==' '){i++;} j=0;
