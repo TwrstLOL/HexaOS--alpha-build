@@ -1,43 +1,49 @@
-# HexaOS — Version 5.0 "Paging Edition"
+# HexaOS — Version 5.1 "Scheduling Edition"
 
-> **v5.0 is here!** Full kernel infrastructure: interrupts, paging, memory management, scheduler, syscalls, and user mode support. This is a major architectural upgrade from v4.0.
+> **v5.1+ is here!** Round-robin scheduler finally enabled with stable 2-task context switching. Fixed a GPF storm caused by the scheduler's register save/restore mechanism. Full kernel infrastructure: interrupts, paging, memory management, syscalls, and user mode support.
 
 A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a floppy disk image via QEMU.
 
-## What's New in v5.0
+## What's New in v5.1
 
-### Kernel Foundation
+### Scheduler Fix (Critical)
+- **GPF storm at `pop %fs` resolved** — The previous scheduler design modified the IRQ stack register save area in-place via a C struct pointer, which corrupted the segment register slots. Replaced with a direct stack-switch (skip segment regs → POPA → IRET) that never returns to `irq_common`.
+- **`sti()` moved after task creation** — Prevents the first timer IRQ from firing before `current_task` and task state are fully initialized.
+- **Syscall return value offset fixed** — Was writing to the EDI slot instead of the EAX slot in the register save area.
+- **2-task round-robin enabled** — `kernel_main` (shell) and `_user_entry` (syscall loop) cycle at 100Hz.
+
+### Kernel Foundation (from v5.0)
 - **Interrupt Descriptor Table (IDT)** — Full 256-entry IDT with exception handlers (0-31), hardware IRQs (32-47), and syscall gate (0x80)
 - **PIC Remap** — Master (IRQ0-7 → INT 0x20-0x27) and Slave (IRQ8-15 → INT 0x28-0x2F)
 - **PIT Timer** — Channel 0 at 100Hz, drives `system_ticks` counter and scheduler
 - **GDT with User Mode** — Ring 0 code/data, Ring 3 code/data, and TSS descriptor for privilege switching
 
-### Memory Management
+### Memory Management (from v5.0)
 - **Paging (x86)** — Page directory + page tables, identity maps first 8MB, dynamic page table allocation
 - **Physical Memory Manager** — Bitmap-based, manages 0–32MB, tracks each 4KB page
 - **Kernel Heap Allocator** — Linked-list `kmalloc`/`kfree` with block splitting and coalescing
 - **Page Fault Handler** — Reads CR2, decodes error flags (present/write/user), logs and recovers (system stays alive)
 
-### Exception Handling
+### Exception Handling (from v5.0)
 - All 32 CPU exceptions have registered handlers
 - **Double Fault** (vector 8) halts the system
 - **Page Fault** (vector 14) logs fault address + flags, returns
 - **GPF** (vector 13) logs EIP + error code, returns
 - Other exceptions log message + EIP and return
 
-### Process & Scheduling
+### Process & Scheduling (from v5.0)
 - **Task struct** with PID, kernel stack, register save area, state machine
 - **Round-Robin Scheduler** — called from timer IRQ, cycles through ready tasks
-- **Context Switch** — modifies IRQ stack register save area to switch between tasks
+- **Context Switch** — direct stack-switch via `mov %0, %%esp; add $16; popa; iret`
 - **`yield()`** — triggers timer IRQ for cooperative rescheduling
 
-### User Boundary
+### User Boundary (from v5.0)
 - **Ring 3 code segment** (0x18) and **Ring 3 data segment** (0x20) in GDT
 - **Task State Segment (TSS)** with ring 0 stack pointer for syscall/interrupt entry
 - **Syscall mechanism** via `int $0x80` (DPL=3 gate, accessible from user code)
 - **4 syscalls**: `SYS_PRINT` (print string), `SYS_READ` (read keyboard), `SYS_EXIT` (exit task), `SYS_TICKS` (get tick count)
 
-### Persistence
+### Persistence (from v5.0)
 - ATA PIO block device driver (primary channel, LBA28 addressing)
 - Read/write disk sectors for persistent file storage
 - Multi-user file system with permissions (owner/group/other, rwx bits)
@@ -63,7 +69,7 @@ Pkg:      ayo list/add/remove/update
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                   HEXA OS 5.0                    │
+│                   HEXA OS 5.1                    │
 ├─────────────┬───────────┬───────────────────────┤
 │  Interrupts │  Memory   │   Process             │
 │  ┌───────┐  │ ┌──────┐  │  ┌────────┐           │
@@ -111,9 +117,10 @@ qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic
 1. **Real Mode Bootloader** (`boot_entry.asm`): Enables A20 gate, loads kernel from floppy using CHS addressing with 64KB bank switching, loads GDT, enters protected mode, jumps to kernel at 0x10000
 2. **Kernel Entry** (`hexa.c` kernel_main): Clears BSS, seeds RNG from CMOS, initializes all subsystems
 3. **Subsystem Init**: GDT → IDT → PIC → PIT → PMM → Paging → Heap → Scheduler → Enable Interrupts
-4. **User Task**: Created with PID=0, enters infinite syscall loop
-5. **Userspace**: Loads user database + file system from ATA disk, presents login prompt
-6. **Shell**: Interactive CLI with command history, aliases, tab-completion (planned)
+4. **User Task**: Created with PID=0, enters infinite syscall loop (`_user_entry`)
+5. **Shell Task**: `kernel_main` becomes PID=1, runs the shell/CLI loop
+6. **Round-Robin**: 2 tasks (user + shell) cycle at 100Hz via timer IRQ
+7. **Userspace**: Loads user database + file system from ATA disk, presents login prompt
 
 ## Default Users
 
@@ -148,19 +155,19 @@ Example: `ayo add games` enables Snake, Tic-Tac-Toe, Hangman, and Memory.
 
 ```
     __________________________
-   /   H E X A   O S   5.0   \
+   /   H E X A   O S   5.1   \
   |  Paging  ·  Scheduler     |
   |  User Mode  ·  Syscalls   |
   |  32-bit Protected Mode    |
    \________________________/
  ┌──────────────────────────────┐
- │  OS:       HEXA OS 5.0 i386  │
+ │  OS:       HEXA OS 5.1 i386  │
  │  Host:     hexaos            │
- │  Version:  5.0 Paging Ed.    │
+ │  Version:  5.1 Scheduling    │
  │  Kernel:   GenuineIntel      │
  │  Paging:   Enabled (4KB pg)  │
  │  IRQs:     PIC PIT@100Hz     │
- │  Tasks:    1  Scheduler: RR  │
+ │  Tasks:    2  Scheduler: RR  │
  │  Syscall:  int 0x80          │
  │  User:     Ring3 TSS         │
  └──────────────────────────────┘
