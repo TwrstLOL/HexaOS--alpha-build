@@ -1,51 +1,179 @@
 #include "types.h"
 #include "syscall.h"
 #include "interrupts.h"
+#include "process.h"
+#include "vfs.h"
+#include "pipe.h"
+#include "log.h"
+#include "paging.h"
 
 extern void print_string(const char *str);
 extern void print_color(const char *str, uint8_t color);
 extern int kb_getchar(void);
+extern volatile uint32_t system_ticks;
+extern void sleep_ticks(uint32_t t);
+
+int sys_validate_str(const char *str, int max_len) {
+    if (!str) return -1;
+    for (int i = 0; i < max_len; i++) {
+        if (str[i] == 0) return 0;
+    }
+    return -1;
+}
+
+int sys_validate_buf(void *buf, int len) {
+    (void)buf;
+    if (len <= 0 || len > 4096) return -1;
+    if (!buf) return -1;
+    return 0;
+}
+
+static void sys_print(const char *str) {
+    if (sys_validate_str(str, 256) == 0) print_string(str);
+}
+
+static int sys_read(char *buf, int len) {
+    if (sys_validate_buf(buf, len) < 0) return SYS_EINVAL;
+    if (len < 1) return 0;
+    int c;
+    do { c = kb_getchar(); } while (c < 0);
+    buf[0] = (char)c;
+    if (len > 1 && c != '\n') { buf[1] = '\n'; return 2; }
+    return 1;
+}
+
+static int sys_open(const char *path, int flags) {
+    if (sys_validate_str(path, 256) < 0) return SYS_EINVAL;
+    return vfs_open(path, flags);
+}
+
+static int sys_close(int fd) {
+    return vfs_close(fd);
+}
+
+static int sys_write(int fd, const char *buf, int len) {
+    if (sys_validate_buf((void *)buf, len) < 0) return SYS_EINVAL;
+    return vfs_write(fd, buf, len);
+}
+
+static int sys_getpid(void) {
+    return tasks[current_task].pid;
+}
+
+static int sys_getppid(void) {
+    return tasks[current_task].parent_pid;
+}
+
+static int sys_waitpid(int *status) {
+    return proc_wait(status);
+}
+
+static int sys_kill(pid_t pid) {
+    return proc_kill(pid);
+}
+
+static int sys_pipe(int *fds) {
+    if (sys_validate_buf(fds, 8) < 0) return SYS_EINVAL;
+    int rfd, wfd;
+    if (pipe_create(&rfd, &wfd) < 0) return SYS_EAGAIN;
+    fds[0] = rfd;
+    fds[1] = wfd;
+    return 0;
+}
+
+static int sys_dup(int old_fd) {
+    return vfs_dup(old_fd);
+}
+
+static int sys_brk(uint32_t addr) {
+    if (addr == 0) return tasks[current_task].heap_brk;
+    if (addr < 0x40000000 || addr > 0x80000000) return SYS_EINVAL;
+    tasks[current_task].heap_brk = addr;
+    return addr;
+}
+
+static int sys_lseek(int fd, int offset, int whence) {
+    return vfs_lseek(fd, offset, whence);
+}
+
+static int sys_uname(char *buf) {
+    if (sys_validate_buf(buf, 64) < 0) return SYS_EINVAL;
+    return 0;
+}
+
+static int sys_mmap(uint32_t addr, uint32_t len) {
+    if (len == 0) return SYS_EINVAL;
+    len = (len + 0xFFF) & ~0xFFF;
+    if (addr == 0) addr = 0x40000000;
+    for (uint32_t v = addr; v < addr + len; v += 4096) {
+        uint32_t phys = pmm_alloc();
+        if (!phys) return SYS_ENOMEM;
+        extern void map_page(uint32_t, uint32_t, uint32_t);
+        map_page(v, phys, 0x007);
+    }
+    return addr;
+}
+
+static int sys_munmap(uint32_t addr, uint32_t len) {
+    len = (len + 0xFFF) & ~0xFFF;
+    for (uint32_t v = addr; v < addr + len; v += 4096) {
+        extern void unmap_page(uint32_t);
+        unmap_page(v);
+    }
+    return 0;
+}
 
 uint32_t syscall_handler(struct regs *r) {
     uint32_t num = r->eax;
     uint32_t arg1 = r->ebx;
     uint32_t arg2 = r->ecx;
     uint32_t arg3 = r->edx;
-    (void)arg2; (void)arg3;
+
+    if (num >= SYSCALL_MAX) return SYS_ENOSYS;
+
     switch (num) {
-        case SYS_PRINT: {
-            // arg1 = pointer to string in user space
-            const char *str = (const char *)arg1;
-            // For now, just print it (user and kernel share address space)
-            print_string(str);
-            return 0;
-        }
-        case SYS_READ: {
-            // arg1 = buffer, arg2 = max_len
-            // Read a single char from keyboard (blocking poll)
-            char *buf = (char *)arg1;
-            int max = (int)arg2;
-            if (max < 1) return 0;
-            int c;
-            do {
-                c = kb_getchar();
-            } while (c < 0);
-            buf[0] = (char)c;
-            if (max > 1 && c != '\n') {
-                buf[1] = '\n';
-                return 2;
-            }
-            return 1;
-        }
-        case SYS_EXIT: {
-            extern void task_exit(void);
-            task_exit();
-            return 0;
-        }
-        case SYS_TICKS: {
+        case SYS_PRINT:
+            sys_print((const char *)arg1);
+            return SYS_OK;
+        case SYS_READ:
+            return sys_read((char *)arg1, (int)arg2);
+        case SYS_EXIT:
+            proc_exit((int)arg1);
+            return SYS_OK;
+        case SYS_TICKS:
             return system_ticks;
-        }
+        case SYS_OPEN:
+            return sys_open((const char *)arg1, (int)arg2);
+        case SYS_CLOSE:
+            return sys_close((int)arg1);
+        case SYS_WRITE:
+            return sys_write((int)arg1, (const char *)arg2, (int)arg3);
+        case SYS_GETPID:
+            return sys_getpid();
+        case SYS_SLEEP:
+            sleep_ticks(arg1);
+            return SYS_OK;
+        case SYS_BRK:
+            return sys_brk(arg1);
+        case SYS_WAITPID:
+            return sys_waitpid((int *)arg1);
+        case SYS_KILL:
+            return sys_kill((pid_t)arg1);
+        case SYS_PIPE:
+            return sys_pipe((int *)arg1);
+        case SYS_DUP:
+            return sys_dup((int)arg1);
+        case SYS_GETPPID:
+            return sys_getppid();
+        case SYS_UNAME:
+            return sys_uname((char *)arg1);
+        case SYS_LSEEK:
+            return sys_lseek((int)arg1, (int)arg2, (int)arg3);
+        case SYS_MMAP:
+            return sys_mmap(arg1, arg2);
+        case SYS_MUNMAP:
+            return sys_munmap(arg1, arg2);
         default:
-            return 0xFFFFFFFF;
+            return SYS_ENOSYS;
     }
 }

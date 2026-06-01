@@ -7,11 +7,23 @@ Merging program properties
 Removed property 0xc0010001 to merge interrupts.o (0x1) and kernel_entry.o (not found)
 Removed property 0xc0010002 to merge interrupts.o (0x0) and kernel_entry.o (not found)
 Removed property 0xc0010001 to merge interrupts.o (not found) and paging.o (0x1)
-Removed property 0xc0010002 to merge interrupts.o (not found) and paging.o (0x0)
-Removed property 0xc0010001 to merge interrupts.o (not found) and scheduler.o (0x1)
-Removed property 0xc0010002 to merge interrupts.o (not found) and scheduler.o (0x0)
+Removed property 0xc0010002 to merge interrupts.o (not found) and paging.o (0x1)
+Removed property 0xc0010001 to merge interrupts.o (not found) and process.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and process.o (0x1)
 Removed property 0xc0010001 to merge interrupts.o (not found) and syscall.o (0x1)
 Removed property 0xc0010002 to merge interrupts.o (not found) and syscall.o (0x0)
+Removed property 0xc0010001 to merge interrupts.o (not found) and sync.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and sync.o (0x0)
+Removed property 0xc0010001 to merge interrupts.o (not found) and log.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and log.o (0x0)
+Removed property 0xc0010001 to merge interrupts.o (not found) and driver.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and driver.o (0x0)
+Removed property 0xc0010001 to merge interrupts.o (not found) and pipe.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and pipe.o (0x0)
+Removed property 0xc0010001 to merge interrupts.o (not found) and vfs.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and vfs.o (0x0)
+Removed property 0xc0010001 to merge interrupts.o (not found) and elf.o (0x1)
+Removed property 0xc0010002 to merge interrupts.o (not found) and elf.o (0x0)
 Removed property 0xc0010001 to merge interrupts.o (not found) and hexa.o (0x1)
 Removed property 0xc0010002 to merge interrupts.o (not found) and hexa.o (0x1)
 
@@ -22,9 +34,21 @@ Discarded input sections
  .note.gnu.property
                 0x00000000       0x28 paging.o
  .note.gnu.property
-                0x00000000       0x28 scheduler.o
+                0x00000000       0x28 process.o
  .note.gnu.property
                 0x00000000       0x28 syscall.o
+ .note.gnu.property
+                0x00000000       0x28 sync.o
+ .note.gnu.property
+                0x00000000       0x28 log.o
+ .note.gnu.property
+                0x00000000       0x28 driver.o
+ .note.gnu.property
+                0x00000000       0x28 pipe.o
+ .note.gnu.property
+                0x00000000       0x28 vfs.o
+ .note.gnu.property
+                0x00000000       0x28 elf.o
  .note.gnu.property
                 0x00000000       0x28 hexa.o
 
@@ -37,277 +61,519 @@ Linker script and memory map
 
                 0x00010000                        . = 0x10000
 
-.text           0x00010000     0xce96
+.text           0x00010000     0xf8e1
  *(.text.entry)
- .text.entry    0x00010000      0x625 hexa.o
+ .text.entry    0x00010000      0x6af hexa.o
                 0x00010000                kernel_entry
                 0x00010000                kernel_main
  *(.text)
- *fill*         0x00010625        0xb 
- .text          0x00010630      0x1de kernel_entry.o
-                0x00010630                isr0
-                0x00010639                isr1
-                0x00010642                isr2
-                0x0001064b                isr3
-                0x00010654                isr4
-                0x0001065d                isr5
-                0x00010666                isr6
-                0x0001066f                isr7
-                0x00010678                isr8
-                0x0001067c                isr9
-                0x00010682                isr10
-                0x00010686                isr11
-                0x0001068a                isr12
-                0x0001068e                isr13
-                0x00010692                isr14
-                0x00010696                isr15
-                0x0001069c                isr16
-                0x000106a2                isr17
-                0x000106a6                isr18
-                0x000106ac                isr19
-                0x000106b2                isr20
-                0x000106b8                isr21
-                0x000106be                isr22
-                0x000106c4                isr23
-                0x000106ca                isr24
-                0x000106d0                isr25
-                0x000106d6                isr26
-                0x000106dc                isr27
-                0x000106e2                isr28
-                0x000106e8                isr29
-                0x000106ee                isr30
-                0x000106f2                isr31
-                0x00010720                irq0
-                0x00010726                irq1
-                0x0001072c                irq2
-                0x00010732                irq3
-                0x00010738                irq4
-                0x0001073e                irq5
-                0x00010744                irq6
-                0x0001074a                irq7
-                0x00010750                irq8
-                0x00010756                irq9
-                0x0001075c                irq10
-                0x00010762                irq11
-                0x00010768                irq12
-                0x0001076e                irq13
-                0x00010774                irq14
-                0x0001077a                irq15
-                0x000107a8                syscall_stub
-                0x000107db                tss_flush
-                0x000107e3                switch_task
-                0x000107f0                enter_userspace
- .text          0x0001080e      0xc36 interrupts.o
-                0x00010848                idt_set_gate
-                0x0001089c                pic_remap
-                0x00010929                pit_init
-                0x00010973                idt_init
-                0x00010e53                setup_gdt
-                0x00010f9c                setup_tss
-                0x00011088                isr_handler
-                0x000112c3                irq_handler
-                0x000113e6                kb_getchar
- .text          0x00011444      0x5b4 paging.o
-                0x000114ce                pmm_init
-                0x00011598                pmm_alloc
-                0x0001162e                pmm_free
-                0x00011667                paging_init
-                0x0001173e                kheap_init
-                0x00011873                kmalloc
-                0x0001193f                kfree
- .text          0x000119f8      0x56c scheduler.o
-                0x00011a06                scheduler_init
-                0x00011a9f                task_create
-                0x00011c70                task_exit
-                0x00011d65                schedule
-                0x00011f36                switch_to_user
-                0x00011f5c                yield
- .text          0x00011f64       0xec syscall.o
-                0x00011f64                syscall_handler
- .text          0x00012050     0xae46 hexa.o
-                0x000120c7                strcmp
-                0x00012106                strcpy
-                0x00012136                strlen
-                0x0001215d                memset
-                0x0001218b                memcpy
-                0x000121c8                strcat
-                0x00012208                atoi
-                0x00012298                itoa
-                0x00012678                get_update_in_progress_flag
-                0x0001269b                get_rtc_register
-                0x000126bb                pci_config_read_word
-                0x00012731                update_cursor
-                0x000127bf                put_char
-                0x0001298d                print_string
-                0x000129c1                print_color
-                0x000129f1                clear_screen
-                0x00012a6f                get_char
-                0x00012c3b                get_line
-                0x00012f76                sleep_ticks
-                0x00012f9f                rand
-                0x00012fc6                cmd_help
-                0x00013117                cmd_kaput
-                0x0001312a                cmd_date
-                0x0001338a                cmd_cpuinfo
-                0x0001346e                cmd_lspci
-                0x000135db                cmd_calc
-                0x000137d7                cmd_ascii
-                0x00013849                cmd_palette
-                0x000138d7                cmd_hex
-                0x00013920                cmd_reverse
-                0x0001397b                cmd_matrix
-                0x00013a24                cmd_guess
-                0x00013ae1                cmd_panic
-                0x00013c16                kb_hit
-                0x00013c52                getch_nb
-                0x00013d31                cmd_snake
-                0x00014366                cmd_tictactoe
-                0x000146fb                cmd_memory
-                0x00014962                cmd_hangman
-                0x00014daa                cmd_neofetch
-                0x000152d7                init_users
-                0x00015324                do_login
-                0x000155fa                cmd_touch
-                0x0001583c                cmd_ls
-                0x00015a95                cmd_cat
-                0x00015b09                cmd_rm
-                0x00015bc2                cmd_write
-                0x00015da7                cmd_append
-                0x00015fde                cmd_edit
-                0x000161c7                cmd_useradd
-                0x00016313                cmd_passwd
-                0x000163ce                cmd_login
-                0x000164a7                cmd_logout
-                0x000164b5                cmd_chmod
-                0x00016725                cmd_chown
-                0x00016906                cmd_banner
-                0x00016a07                cmd_yes
-                0x00016a83                cmd_time
-                0x00016bf6                cmd_fortune
-                0x00016cc0                cmd_shutdown
-                0x00016ce4                cmd_hostname
-                0x00016d54                cmd_id
-                0x00016de7                cmd_wc
-                0x00016f78                cmd_tail
-                0x00017205                cmd_hist
-                0x000172ba                cmd_which
-                0x00017361                cmd_true
-                0x00017367                cmd_false
-                0x0001736d                cmd_sort
-                0x000175c3                cmd_env
-                0x00017677                cmd_alias
-                0x000178bc                cmd_unalias
-                0x000179bc                cmd_grep
-                0x00017d24                cmd_find
-                0x00017dab                cmd_diff
-                0x000182aa                cmd_uniq
-                0x0001846c                cmd_pwd
-                0x000184a2                cmd_mkdir
-                0x000185d6                cmd_tee
-                0x00018824                cmd_basename
-                0x0001889e                cmd_dirname
-                0x0001894a                cmd_ps
-                0x000189ce                cmd_kill
-                0x00018a37                cmd_seq
-                0x00018b99                cmd_tr
-                0x00018e34                cmd_who
-                0x00018edc                cmd_cowsay
-                0x00019036                cmd_cmatrix
-                0x0001936b                cmd_dice
-                0x0001955c                cmd_8ball
-                0x00019626                cmd_logo
-                0x000196d0                cmd_sl
-                0x00019827                cmd_morse
-                0x00019976                cmd_russian
-                0x00019a07                cmd_insult
-                0x00019a9f                cmd_excuse
-                0x00019b37                cmd_compliment
-                0x00019bcf                cmd_hack
-                0x00019d0a                cmd_bsod
-                0x0001ce68                _user_entry
+ *fill*         0x000106af        0x1 
+ .text          0x000106b0      0x1dd kernel_entry.o
+                0x000106b0                isr0
+                0x000106b9                isr1
+                0x000106c2                isr2
+                0x000106cb                isr3
+                0x000106d4                isr4
+                0x000106dd                isr5
+                0x000106e6                isr6
+                0x000106ef                isr7
+                0x000106f8                isr8
+                0x000106fc                isr9
+                0x00010702                isr10
+                0x00010706                isr11
+                0x0001070a                isr12
+                0x0001070e                isr13
+                0x00010712                isr14
+                0x00010716                isr15
+                0x0001071c                isr16
+                0x00010722                isr17
+                0x00010726                isr18
+                0x0001072c                isr19
+                0x00010732                isr20
+                0x00010738                isr21
+                0x0001073e                isr22
+                0x00010744                isr23
+                0x0001074a                isr24
+                0x00010750                isr25
+                0x00010756                isr26
+                0x0001075c                isr27
+                0x00010762                isr28
+                0x00010768                isr29
+                0x0001076e                isr30
+                0x00010772                isr31
+                0x000107a0                irq0
+                0x000107a6                irq1
+                0x000107ac                irq2
+                0x000107b2                irq3
+                0x000107b8                irq4
+                0x000107be                irq5
+                0x000107c4                irq6
+                0x000107ca                irq7
+                0x000107d0                irq8
+                0x000107d6                irq9
+                0x000107dc                irq10
+                0x000107e2                irq11
+                0x000107e8                irq12
+                0x000107ee                irq13
+                0x000107f4                irq14
+                0x000107fa                irq15
+                0x00010828                syscall_stub
+                0x0001085a                tss_flush
+                0x00010862                switch_task
+                0x0001086f                enter_userspace
+ .text          0x0001088d      0xb3a interrupts.o
+                0x000108c7                idt_set_gate
+                0x0001091b                pic_remap
+                0x000109bd                pit_init
+                0x00010a19                idt_init
+                0x00010f0b                setup_gdt
+                0x0001100a                setup_tss
+                0x0001105d                put_hex32
+                0x000110cc                isr_handler
+                0x00011246                irq_handler
+                0x00011369                kb_getchar
+ .text          0x000113c7      0x94a paging.o
+                0x00011451                pmm_init
+                0x00011527                pmm_alloc
+                0x000115bd                pmm_free
+                0x000115f6                pmm_count_free
+                0x00011632                paging_init
+                0x00011717                get_kernel_page_dir
+                0x00011721                create_user_page_dir
+                0x0001179b                switch_page_dir
+                0x000117ad                map_page
+                0x0001188b                unmap_page
+                0x00011905                page_fault_handler
+                0x00011a76                kheap_init
+                0x00011aff                kmalloc
+                0x00011bcb                kfree
+                0x00011c84                krealloc
+ .text          0x00011d11      0xdda process.o
+                0x00011d7f                proc_init
+                0x00011f61                proc_create
+                0x0001219a                proc_create_user
+                0x000123ef                proc_exit
+                0x00012549                proc_wait
+                0x000125ec                proc_kill
+                0x000126a4                proc_reap_zombies
+                0x000126ea                proc_get_fd_entry
+                0x00012785                proc_alloc_fd
+                0x00012894                proc_free_fd
+                0x00012917                schedule
+                0x00012ae3                yield
+ .text          0x00012aeb      0x6a5 syscall.o
+                0x00012aeb                sys_validate_str
+                0x00012b30                sys_validate_buf
+                0x00012e83                syscall_handler
+ .text          0x00013190       0xf9 sync.o
+                0x0001319e                mutex_init
+                0x000131b7                mutex_lock
+                0x000131d9                mutex_trylock
+                0x000131f0                mutex_unlock
+                0x0001320a                sem_init
+                0x00013222                sem_wait
+                0x00013262                sem_signal
+ .text          0x00013289      0x392 log.o
+                0x00013337                log_init
+                0x00013370                log_write
+                0x0001349e                log_write_hex
+                0x00013556                log_dump
+                0x000135a2                log_get
+                0x00013611                log_get_count
+ .text          0x0001361b      0x16d driver.o
+                0x0001361b                drv_register_block
+                0x000136ab                drv_register_char
+                0x0001371f                drv_get_block
+                0x0001374d                drv_get_char
+                0x00013774                drv_block_count
+                0x0001377e                drv_char_count
+ .text          0x00013788      0x32f pipe.o
+                0x00013796                pipe_create
+                0x0001388c                pipe_read
+                0x00013959                pipe_write
+                0x00013a24                pipe_close
+ .text          0x00013ab7      0x646 vfs.o
+                0x00013b5b                vfs_init
+                0x00013b93                vfs_open
+                0x00013cae                vfs_close
+                0x00013cfb                vfs_read
+                0x00013e8c                vfs_write
+                0x00013f75                vfs_lseek
+                0x0001405e                vfs_stat
+                0x00014068                vfs_dup
+ .text          0x000140fd      0x1b1 elf.o
+                0x000140fd                elf_validate
+                0x00014154                elf_load
+ .text          0x000142ae     0xb633 hexa.o
+                0x0001432c                strcmp
+                0x0001436b                strcpy
+                0x0001439b                strlen
+                0x000143c2                memset
+                0x000143f0                memcpy
+                0x0001442d                strcat
+                0x0001446d                atoi
+                0x000144fd                itoa
+                0x000148dd                get_update_in_progress_flag
+                0x00014900                get_rtc_register
+                0x00014920                pci_config_read_word
+                0x00014996                update_cursor
+                0x00014a59                put_char
+                0x00014c27                print_string
+                0x00014c5b                print_color
+                0x00014c8b                clear_screen
+                0x00014d09                get_char
+                0x00014ed5                get_line
+                0x00015210                sleep_ticks
+                0x00015239                rand
+                0x00015260                cmd_help
+                0x000153c1                cmd_kaput
+                0x000153d4                cmd_date
+                0x00015634                cmd_cpuinfo
+                0x00015718                cmd_lspci
+                0x00015885                cmd_calc
+                0x00015a81                cmd_ascii
+                0x00015af3                cmd_palette
+                0x00015b81                cmd_hex
+                0x00015bca                cmd_reverse
+                0x00015c25                cmd_matrix
+                0x00015cce                cmd_guess
+                0x00015d8b                cmd_panic
+                0x00015ec0                kb_hit
+                0x00015efc                getch_nb
+                0x00015fdb                cmd_snake
+                0x00016610                cmd_tictactoe
+                0x000169a5                cmd_memory
+                0x00016c0c                cmd_hangman
+                0x00017054                cmd_neofetch
+                0x00017867                init_users
+                0x000178b4                do_login
+                0x00017b43                find_file
+                0x00017b8a                cmd_touch
+                0x00017dcc                cmd_ls
+                0x00017f27                check_perm
+                0x00018025                cmd_cat
+                0x00018099                cmd_rm
+                0x00018152                cmd_write
+                0x00018337                cmd_append
+                0x0001856e                cmd_edit
+                0x00018757                cmd_useradd
+                0x000188a3                cmd_passwd
+                0x0001895e                cmd_login
+                0x00018a37                cmd_logout
+                0x00018a45                cmd_chmod
+                0x00018cb5                cmd_chown
+                0x00018e96                cmd_banner
+                0x00018f97                cmd_yes
+                0x00019013                cmd_time
+                0x00019186                cmd_fortune
+                0x00019250                cmd_shutdown
+                0x00019274                cmd_hostname
+                0x000192e4                cmd_id
+                0x00019377                cmd_wc
+                0x00019508                cmd_tail
+                0x00019795                cmd_hist
+                0x0001984a                cmd_which
+                0x000198f8                cmd_true
+                0x000198fe                cmd_false
+                0x00019904                cmd_sort
+                0x00019b5a                cmd_env
+                0x00019c0e                cmd_alias
+                0x00019e53                cmd_unalias
+                0x00019f53                cmd_grep
+                0x0001a2bb                cmd_find
+                0x0001a342                cmd_diff
+                0x0001a841                cmd_uniq
+                0x0001aa03                cmd_pwd
+                0x0001aa39                cmd_mkdir
+                0x0001ab6d                cmd_tee
+                0x0001adbb                cmd_basename
+                0x0001ae35                cmd_dirname
+                0x0001aee1                cmd_ps
+                0x0001b0b8                cmd_kill
+                0x0001b14e                cmd_seq
+                0x0001b2b0                cmd_tr
+                0x0001b54b                cmd_dmesg
+                0x0001b5cd                cmd_wait_child
+                0x0001b677                cmd_who
+                0x0001b71f                cmd_cowsay
+                0x0001b879                cmd_cmatrix
+                0x0001bbae                cmd_dice
+                0x0001bd9f                cmd_8ball
+                0x0001be69                cmd_logo
+                0x0001bf43                cmd_sl
+                0x0001c09a                cmd_morse
+                0x0001c1e9                cmd_russian
+                0x0001c27a                cmd_insult
+                0x0001c312                cmd_excuse
+                0x0001c3aa                cmd_compliment
+                0x0001c442                cmd_hack
+                0x0001c57d                cmd_bsod
+                0x0001f8a4                shell_entry
+                0x0001f8b3                _user_entry
 
-.iplt           0x0001ce96        0x0
- .iplt          0x0001ce96        0x0 kernel_entry.o
+.iplt           0x0001f8e1        0x0
+ .iplt          0x0001f8e1        0x0 kernel_entry.o
 
-.rodata         0x0001cea0     0x2a61
+.rodata         0x0001f900     0x2ff6
  *(.rodata)
- .rodata        0x0001cea0      0x2e7 interrupts.o
- *fill*         0x0001d187       0x19 
- .rodata        0x0001d1a0     0x2761 hexa.o
-                0x0001d1c0                kbd_map
-                0x0001d240                kbd_map_shift
+ .rodata        0x0001f900      0x2d5 interrupts.o
+ *fill*         0x0001fbd5        0x3 
+ .rodata        0x0001fbd8       0x80 paging.o
+ .rodata        0x0001fc58       0x30 log.o
+ *fill*         0x0001fc88       0x18 
+ .rodata        0x0001fca0     0x2c56 hexa.o
+                0x0001fcc0                kbd_map
+                0x0001fd40                kbd_map_shift
 
-.eh_frame       0x0001f904     0x1468
- .eh_frame      0x0001f904      0x1f8 interrupts.o
- .eh_frame      0x0001fafc      0x150 paging.o
-                                0x168 (size before relaxing)
- .eh_frame      0x0001fc4c       0xfc scheduler.o
-                                0x114 (size before relaxing)
- .eh_frame      0x0001fd48       0x20 syscall.o
-                                 0x38 (size before relaxing)
- .eh_frame      0x0001fd68     0x1004 hexa.o
-                               0x101c (size before relaxing)
+.eh_frame       0x000228f8     0x1ecc
+ .eh_frame      0x000228f8      0x1f8 interrupts.o
+ .eh_frame      0x00022af0      0x274 paging.o
+                                0x28c (size before relaxing)
+ .eh_frame      0x00022d64      0x1fc process.o
+                                0x214 (size before relaxing)
+ .eh_frame      0x00022f60      0x260 syscall.o
+                                0x278 (size before relaxing)
+ .eh_frame      0x000231c0      0x120 sync.o
+                                0x138 (size before relaxing)
+ .eh_frame      0x000232e0      0x180 log.o
+                                0x198 (size before relaxing)
+ .eh_frame      0x00023460       0xc0 driver.o
+                                 0xd8 (size before relaxing)
+ .eh_frame      0x00023520       0xc0 pipe.o
+                                 0xd8 (size before relaxing)
+ .eh_frame      0x000235e0      0x120 vfs.o
+                                0x138 (size before relaxing)
+ .eh_frame      0x00023700       0x40 elf.o
+                                 0x58 (size before relaxing)
+ .eh_frame      0x00023740     0x1084 hexa.o
+                               0x109c (size before relaxing)
 
-.rel.dyn        0x00020d6c        0x0
- .rel.got       0x00020d6c        0x0 kernel_entry.o
- .rel.iplt      0x00020d6c        0x0 kernel_entry.o
+.rel.dyn        0x000247c4        0x0
+ .rel.got       0x000247c4        0x0 kernel_entry.o
+ .rel.iplt      0x000247c4        0x0 kernel_entry.o
  .rel.text.entry
-                0x00020d6c        0x0 kernel_entry.o
+                0x000247c4        0x0 kernel_entry.o
 
-.data           0x00020d80     0x565c
+.data           0x000247e0     0x565c
  *(.data)
- .data          0x00020d80       0x7c interrupts.o
- .data          0x00020dfc        0x0 paging.o
- .data          0x00020dfc        0x0 scheduler.o
- .data          0x00020dfc        0x0 syscall.o
- *fill*         0x00020dfc        0x4 
- .data          0x00020e00     0x55dc hexa.o
-                0x000263dc                        _bss_start = .
+ .data          0x000247e0       0x54 interrupts.o
+ .data          0x00024834        0x0 paging.o
+ .data          0x00024834        0x4 process.o
+ .data          0x00024838        0x0 syscall.o
+ .data          0x00024838        0x0 sync.o
+ .data          0x00024838       0x10 log.o
+ .data          0x00024848        0x0 driver.o
+ .data          0x00024848        0x0 pipe.o
+ .data          0x00024848        0x0 vfs.o
+ .data          0x00024848        0x0 elf.o
+ *fill*         0x00024848       0x18 
+ .data          0x00024860     0x55dc hexa.o
+                0x00029e3c                        _bss_start = .
 
-.got            0x000263dc        0x0
- .got           0x000263dc        0x0 kernel_entry.o
+.got            0x00029e3c        0x0
+ .got           0x00029e3c        0x0 kernel_entry.o
 
-.got.plt        0x000263dc        0x0
- .got.plt       0x000263dc        0x0 kernel_entry.o
+.got.plt        0x00029e3c        0x0
+ .got.plt       0x00029e3c        0x0 kernel_entry.o
 
-.igot.plt       0x000263dc        0x0
- .igot.plt      0x000263dc        0x0 kernel_entry.o
+.igot.plt       0x00029e3c        0x0
+ .igot.plt      0x00029e3c        0x0 kernel_entry.o
 
-.bss            0x000263e0    0x1bb60
+.bss            0x00029e40    0x3dbe0
  *(.bss)
- .bss           0x000263e0      0x996 interrupts.o
-                0x000263e0                system_ticks
-                0x00026400                kbuf
-                0x00026500                kbuf_head
-                0x00026504                kbuf_tail
- *fill*         0x00026d76        0xa 
- .bss           0x00026d80      0x414 paging.o
- *fill*         0x00027194        0xc 
- .bss           0x000271a0    0x11200 scheduler.o
-                0x000271a0                tasks
-                0x00037320                current_task
-                0x00037324                num_tasks
- .bss           0x000383a0        0x0 syscall.o
- .bss           0x000383a0     0x9ba0 hexa.o
-                0x00041f40                        _bss_end = .
-                0x00042000                        . = ALIGN (0x1000)
-                0x00042000                        _kernel_end = .
+ .bss           0x00029e40      0x996 interrupts.o
+                0x00029e40                system_ticks
+                0x00029e60                kbuf
+                0x00029f60                kbuf_head
+                0x00029f64                kbuf_tail
+ *fill*         0x0002a7d6        0xa 
+ .bss           0x0002a7e0      0x41c paging.o
+ *fill*         0x0002abfc        0x4 
+ .bss           0x0002ac00    0x21470 process.o
+                0x0002ac00                tasks
+                0x0004c000                current_task
+                0x0004c004                num_tasks
+ .bss           0x0004c070        0x0 syscall.o
+ .bss           0x0004c070        0x0 sync.o
+ *fill*         0x0004c070       0x10 
+ .bss           0x0004c080     0x1060 log.o
+ .bss           0x0004d0e0      0x208 driver.o
+                0x0004d0e0                drv_block_devices
+                0x0004d200                drv_char_devices
+ *fill*         0x0004d2e8       0x18 
+ .bss           0x0004d300    0x10180 pipe.o
+ .bss           0x0005d480      0xa00 vfs.o
+ .bss           0x0005de80        0x0 elf.o
+ .bss           0x0005de80     0x9ba0 hexa.o
+                0x0005de80                f_count
+                0x0005de84                disk_ok
+                0x00067a20                        _bss_end = .
+                0x00068000                        . = ALIGN (0x1000)
+                0x00068000                        _kernel_end = .
 LOAD kernel_entry.o
 LOAD interrupts.o
 LOAD paging.o
-LOAD scheduler.o
+LOAD process.o
 LOAD syscall.o
+LOAD sync.o
+LOAD log.o
+LOAD driver.o
+LOAD pipe.o
+LOAD vfs.o
+LOAD elf.o
 LOAD hexa.o
 OUTPUT(kernel.elf elf32-i386)
+
+.debug_info     0x00000000     0x7364
+ .debug_info    0x00000000      0x90c interrupts.o
+ .debug_info    0x0000090c      0x83d paging.o
+ .debug_info    0x00001149      0x855 process.o
+ .debug_info    0x0000199e      0x872 syscall.o
+ .debug_info    0x00002210      0x1e8 sync.o
+ .debug_info    0x000023f8      0x39b log.o
+ .debug_info    0x00002793      0x2ed driver.o
+ .debug_info    0x00002a80      0x320 pipe.o
+ .debug_info    0x00002da0      0x4ed vfs.o
+ .debug_info    0x0000328d      0x30a elf.o
+ .debug_info    0x00003597     0x3dcd hexa.o
+
+.debug_abbrev   0x00000000     0x173c
+ .debug_abbrev  0x00000000      0x273 interrupts.o
+ .debug_abbrev  0x00000273      0x20b paging.o
+ .debug_abbrev  0x0000047e      0x289 process.o
+ .debug_abbrev  0x00000707      0x264 syscall.o
+ .debug_abbrev  0x0000096b      0x107 sync.o
+ .debug_abbrev  0x00000a72      0x1b0 log.o
+ .debug_abbrev  0x00000c22      0x141 driver.o
+ .debug_abbrev  0x00000d63      0x17b pipe.o
+ .debug_abbrev  0x00000ede      0x1cd vfs.o
+ .debug_abbrev  0x000010ab      0x12b elf.o
+ .debug_abbrev  0x000011d6      0x566 hexa.o
+
+.debug_aranges  0x00000000      0x168
+ .debug_aranges
+                0x00000000       0x20 interrupts.o
+ .debug_aranges
+                0x00000020       0x20 paging.o
+ .debug_aranges
+                0x00000040       0x20 process.o
+ .debug_aranges
+                0x00000060       0x20 syscall.o
+ .debug_aranges
+                0x00000080       0x20 sync.o
+ .debug_aranges
+                0x000000a0       0x20 log.o
+ .debug_aranges
+                0x000000c0       0x20 driver.o
+ .debug_aranges
+                0x000000e0       0x20 pipe.o
+ .debug_aranges
+                0x00000100       0x20 vfs.o
+ .debug_aranges
+                0x00000120       0x20 elf.o
+ .debug_aranges
+                0x00000140       0x28 hexa.o
+
+.debug_rnglists
+                0x00000000       0xe0
+ .debug_rnglists
+                0x00000000       0x17 interrupts.o
+ .debug_rnglists
+                0x00000017       0xc9 hexa.o
+
+.debug_line     0x00000000     0x807b
+ .debug_line    0x00000000      0x3d4 interrupts.o
+ .debug_line    0x000003d4      0x5e1 paging.o
+ .debug_line    0x000009b5      0x66d process.o
+ .debug_line    0x00001022      0x33f syscall.o
+ .debug_line    0x00001361      0x108 sync.o
+ .debug_line    0x00001469      0x272 log.o
+ .debug_line    0x000016db       0xf0 driver.o
+ .debug_line    0x000017cb      0x1d5 pipe.o
+ .debug_line    0x000019a0      0x336 vfs.o
+ .debug_line    0x00001cd6      0x177 elf.o
+ .debug_line    0x00001e4d     0x622e hexa.o
+
+.debug_str      0x00000000     0x1302
+ .debug_str     0x00000000     0x1302 interrupts.o
+                                0x3e6 (size before relaxing)
+ .debug_str     0x00001302        0x0 paging.o
+                                0x2f9 (size before relaxing)
+ .debug_str     0x00001302        0x0 process.o
+                                0x2ea (size before relaxing)
+ .debug_str     0x00001302        0x0 syscall.o
+                                0x33b (size before relaxing)
+ .debug_str     0x00001302        0x0 sync.o
+                                0x141 (size before relaxing)
+ .debug_str     0x00001302        0x0 log.o
+                                0x186 (size before relaxing)
+ .debug_str     0x00001302        0x0 driver.o
+                                0x1b3 (size before relaxing)
+ .debug_str     0x00001302        0x0 pipe.o
+                                0x17e (size before relaxing)
+ .debug_str     0x00001302        0x0 vfs.o
+                                0x1f7 (size before relaxing)
+ .debug_str     0x00001302        0x0 elf.o
+                                0x1c5 (size before relaxing)
+ .debug_str     0x00001302        0x0 hexa.o
+                                0xb03 (size before relaxing)
+
+.debug_line_str
+                0x00000000       0xcc
+ .debug_line_str
+                0x00000000       0xcc interrupts.o
+                                 0x84 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 paging.o
+                                 0x6b (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 process.o
+                                 0x88 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 syscall.o
+                                 0x95 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 sync.o
+                                 0x66 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 log.o
+                                 0x5c (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 driver.o
+                                 0x6e (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 pipe.o
+                                 0x70 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 vfs.o
+                                 0x73 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 elf.o
+                                 0x62 (size before relaxing)
+ .debug_line_str
+                0x000000cc        0x0 hexa.o
+                                 0x8b (size before relaxing)
 
 .comment        0x00000000       0x1b
  .comment       0x00000000       0x1b interrupts.o
                                  0x1c (size before relaxing)
  .comment       0x0000001b        0x0 paging.o
                                  0x1c (size before relaxing)
- .comment       0x0000001b        0x0 scheduler.o
+ .comment       0x0000001b        0x0 process.o
                                  0x1c (size before relaxing)
  .comment       0x0000001b        0x0 syscall.o
+                                 0x1c (size before relaxing)
+ .comment       0x0000001b        0x0 sync.o
+                                 0x1c (size before relaxing)
+ .comment       0x0000001b        0x0 log.o
+                                 0x1c (size before relaxing)
+ .comment       0x0000001b        0x0 driver.o
+                                 0x1c (size before relaxing)
+ .comment       0x0000001b        0x0 pipe.o
+                                 0x1c (size before relaxing)
+ .comment       0x0000001b        0x0 vfs.o
+                                 0x1c (size before relaxing)
+ .comment       0x0000001b        0x0 elf.o
                                  0x1c (size before relaxing)
  .comment       0x0000001b        0x0 hexa.o
                                  0x1c (size before relaxing)
@@ -319,8 +585,20 @@ OUTPUT(kernel.elf elf32-i386)
  .note.GNU-stack
                 0x00000000        0x0 paging.o
  .note.GNU-stack
-                0x00000000        0x0 scheduler.o
+                0x00000000        0x0 process.o
  .note.GNU-stack
                 0x00000000        0x0 syscall.o
+ .note.GNU-stack
+                0x00000000        0x0 sync.o
+ .note.GNU-stack
+                0x00000000        0x0 log.o
+ .note.GNU-stack
+                0x00000000        0x0 driver.o
+ .note.GNU-stack
+                0x00000000        0x0 pipe.o
+ .note.GNU-stack
+                0x00000000        0x0 vfs.o
+ .note.GNU-stack
+                0x00000000        0x0 elf.o
  .note.GNU-stack
                 0x00000000        0x0 hexa.o

@@ -1,7 +1,13 @@
 #include "types.h"
 #include "interrupts.h"
 #include "paging.h"
-#include "scheduler.h"
+#include "process.h"
+#include "vfs.h"
+#include "pipe.h"
+#include "sync.h"
+#include "log.h"
+#include "driver.h"
+#include "elf.h"
 
 #define VGA_BUFFER ((uint16_t *)0xB8000)
 
@@ -50,8 +56,8 @@ static struct {
   int owner;
   uint16_t mode;
 } f_table[MAX_FILES];
-static int f_count = 0;
-static int disk_ok = 0;
+int f_count = 0;
+int disk_ok = 0;
 
 // ----------------- String Library -----------------
 int strcmp(const char *s1, const char *s2) {
@@ -465,7 +471,7 @@ uint32_t rand() {
 }
 
 // ----------------- Shell Commands -----------------
-static int find_file(const char *name);
+int find_file(const char *name);
 
 void cmd_help() {
   print_string("HEXA OS 5.1 Commands\n");
@@ -491,6 +497,7 @@ void cmd_help() {
   if (find_file(".games") >= 0)
     print_string(" Games:   snake, tictactoe, hangman, memory\n");
   print_string(" Info:    uname, uptime, about, mem, beep, history\n");
+  print_string("          dmesg, ps, kill, wait\n");
   print_string("------------------------------------\n");
   print_string(" Pkg mgmt: ayo help\n");
 }
@@ -1265,7 +1272,7 @@ void cmd_ls(void) {
 }
 
 // Permission check: 0 = allowed, 1 = denied
-static int check_perm(int idx, int want_write) {
+int check_perm(int idx, int want_write) {
   if (idx < 0 || idx >= f_count) return 1;
   if (u_cur == 0) return 0; // root can do anything
   if (f_table[idx].owner == u_cur) {
@@ -1385,6 +1392,7 @@ void cmd_useradd(const char *name) {
 }
 
 void cmd_passwd(const char *args) {
+  (void)args;
   char buf[NAME_MAX], newbuf[NAME_MAX];
   print_string("Current password: ");
   get_line(buf, NAME_MAX);
@@ -1626,9 +1634,10 @@ void cmd_which(const char *name) {
     "morse","russian","insult","excuse","compliment","hack","bsod",
     "true","false","sort","env","ayo","chmod","chown","grep","find",
     "diff","uniq","alias","unalias","pwd","mkdir","tee","basename",
-    "dirname","ps","kill","seq","tr","who"
+    "dirname","ps","kill","wait","dmesg","seq","tr","who"
   };
-  for (int i = 0; i < sizeof(list)/sizeof(list[0]); i++)
+  int list_count = sizeof(list)/sizeof(list[0]);
+  for (int i = 0; i < list_count; i++)
     if (strcmp(list[i], name) == 0) { print_string(name); print_string(": internal command\n"); return; }
   print_string("Not found.\n");
 }
@@ -1881,19 +1890,41 @@ void cmd_dirname(const char *path) {
 }
 
 void cmd_ps(void) {
-  print_string("  PID  USER       COMMAND\n");
-  print_string("  ---  ----       -------\n");
-  print_string("    1  ");
-  print_string(u_table[u_cur].name);
-  for(int s=strlen(u_table[u_cur].name);s<10;s++)put_char(' ',0x0F);
-  print_string("hexa_shell\n");
+  print_string("  PID  PPID STATE NAME\n");
+  print_string("  ---  ---- ----- ----\n");
+  for (int i = 0; i < MAX_TASKS; i++) {
+    if (tasks[i].state == TASK_DEAD) continue;
+    char buf[16];
+    itoa(tasks[i].pid, buf, 10); print_string("  ");
+    if (tasks[i].pid < 10) print_string(" ");
+    print_string(buf);
+    print_string("  ");
+    itoa(tasks[i].parent_pid, buf, 10);
+    if (tasks[i].parent_pid < 10) print_string(" ");
+    print_string(buf);
+    print_string("  ");
+    switch (tasks[i].state) {
+      case TASK_RUNNING: print_string("RUN"); break;
+      case TASK_READY:   print_string("RDY"); break;
+      case TASK_BLOCKED: print_string("BLK"); break;
+      case TASK_ZOMBIE:  print_color("ZOM", 0x0C); break;
+    }
+    print_string("  ");
+    print_string(tasks[i].name);
+    if (i == current_task) print_color(" *", 0x0A);
+    print_string("\n");
+  }
 }
 
 void cmd_kill(const char *args) {
   if(!args[0]){print_string("Usage: kill <pid>\n");return;}
   int pid=atoi(args);
-  if(pid==1){print_string("Cannot kill the shell.\n");return;}
-  print_string("No process with PID ");print_string(args);print_string(".\n");
+  if(pid<=0){print_string("Invalid PID.\n");return;}
+  if(proc_kill(pid)<0) {
+    print_string("No process with PID ");print_string(args);print_string(".\n");
+  } else {
+    print_string("Killed.\n");
+  }
 }
 
 void cmd_seq(const char *args) {
@@ -1930,6 +1961,31 @@ void cmd_tr(const char *args) {
     if(!replaced)put_char(text[k],0x0F);
   }
   print_string("\n");
+}
+
+void cmd_dmesg(void) {
+  log_write(LOG_LEVEL_INFO, "dmesg requested");
+  print_string("Kernel log (last entries):\n");
+  print_string(log_get());
+  print_string("\n");
+  char buf[16];
+  itoa(log_get_count(), buf, 10); print_string(buf);
+  print_string(" total log entries\n");
+}
+
+void cmd_wait_child(void) {
+  int status;
+  pid_t pid = proc_wait(&status);
+  if (pid > 0) {
+    char buf[16];
+    print_string("Child PID ");
+    itoa(pid, buf, 10); print_string(buf);
+    print_string(" exited with status ");
+    itoa(status, buf, 10); print_string(buf);
+    print_string("\n");
+  } else {
+    print_string("No zombie children.\n");
+  }
 }
 
 void cmd_who(void) {
@@ -2328,7 +2384,7 @@ static struct pkg_entry pkg_db[] = {
     {"flags.txt","HEXA OS flags: ASCII art banners!"},
   }, 5},
 };
-#define PKG_COUNT (sizeof(pkg_db) / sizeof(pkg_db[0]))
+#define PKG_COUNT ((int)(sizeof(pkg_db) / sizeof(pkg_db[0])))
 
 static void cmd_ayo(const char *args) {
   char sub[16]={0}, pkg[32]={0};
@@ -2703,6 +2759,8 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "dirname") == 0) { cmd_dirname(args); return 1; }
   if (strcmp(cmd, "ps") == 0) { cmd_ps(); return 1; }
   if (strcmp(cmd, "kill") == 0) { cmd_kill(args); return 1; }
+  if (strcmp(cmd, "wait") == 0) { cmd_wait_child(); return 1; }
+  if (strcmp(cmd, "dmesg") == 0) { cmd_dmesg(); return 1; }
   if (strcmp(cmd, "seq") == 0) { cmd_seq(args); return 1; }
   if (strcmp(cmd, "tr") == 0) { cmd_tr(args); return 1; }
   if (strcmp(cmd, "who") == 0) { cmd_who(); return 1; }
@@ -2802,26 +2860,32 @@ void kernel_main(void) {
 
   rseed = get_rtc_register(0x00);
 
-  // Initialize kernel subsystems
+  // Mask all PIC IRQs to prevent spurious interrupts during init
+  outb(0x21, 0xFF);
+  outb(0xA1, 0xFF);
+
   print_color("[BOOT] Setting up GDT...\n", 0x0A);
   setup_gdt();
 
   print_color("[BOOT] Setting up IDT...\n", 0x0A);
   idt_init();
   pic_remap();
-  pit_init(100); // 100 Hz
+  pit_init(100);
 
   print_color("[BOOT] Enabling paging...\n", 0x0A);
   pmm_init(32 * 1024 * 1024, (uint32_t)&_kernel_end);
   paging_init();
   kheap_init();
 
-  print_color("[BOOT] Initializing scheduler...\n", 0x0A);
-  scheduler_init();
+  print_color("[BOOT] Initializing logging...\n", 0x0A);
+  log_init();
 
-  // Create tasks BEFORE enabling interrupts so the scheduler
-  // sees a fully consistent state on the first timer tick.
-  int user_pid = task_create(_user_entry);
+  print_color("[BOOT] Initializing process manager...\n", 0x0A);
+  proc_init();
+  vfs_init();
+
+  // Create tasks BEFORE enabling interrupts
+  int user_pid = proc_create(_user_entry, "user_task", 1);
   if (user_pid >= 0) {
       char nb[16]; int bi = 0;
       int n = user_pid; if (n == 0) { nb[bi++] = '0'; } else { while (n) { nb[bi++] = '0' + (n % 10); n /= 10; } nb[bi] = 0; for (int k=0;k<bi/2;k++){char t=nb[k];nb[k]=nb[bi-1-k];nb[bi-1-k]=t;} }
@@ -2830,10 +2894,10 @@ void kernel_main(void) {
       print_color("\n", 0x0A);
   }
 
-  int shell_pid = task_create(shell_entry);
+  int shell_pid = proc_create(shell_entry, "shell", 1);
   if (shell_pid >= 0) {
-      current_task = shell_pid;
-      tasks[shell_pid].state = TASK_RUNNING;
+      current_task = 1;
+      tasks[1].state = TASK_RUNNING;
   }
 
   print_color("[BOOT] Enabling interrupts...\n", 0x0A);
@@ -2845,6 +2909,7 @@ void kernel_main(void) {
   do_login();
 
   serial_putc('['); serial_putc('O'); serial_putc('K'); serial_putc(']'); serial_putc('\n');
+  log_write(LOG_LEVEL_INFO, "System boot complete");
 
   // Fall into the shell — first timer IRQ will save our state and switch
   char input_buffer[128], cmd[32], args[96];

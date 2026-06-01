@@ -1,16 +1,15 @@
 SHELL := /bin/bash
 
 CC = gcc
-CFLAGS = -m32 -ffreestanding -nostdinc -nostdlib -fno-pie -fno-stack-protector -mno-sse -mno-sse2 -Wall -Wextra -I.
+CFLAGS = -m32 -ffreestanding -nostdinc -nostdlib -fno-pie -fno-stack-protector -mno-sse -mno-sse2 -Wall -Wextra -I. -g
 LDFLAGS = -T link.ld -m elf_i386 -nostdlib
 
-OBJECTS = kernel_entry.o interrupts.o paging.o scheduler.o syscall.o hexa.o
+OBJECTS = kernel_entry.o interrupts.o paging.o process.o syscall.o sync.o log.o driver.o pipe.o vfs.o elf.o hexa.o
 
 all: clean os.img storage.img
 
 boot.bin: boot_entry.asm kernel.bin
 	nasm -f bin -o boot.bin boot_entry.asm
-	# Patch boot.bin at offset 27 with actual kernel sector count (mov si, imm8)
 	ksect=$$(( $$(stat -c '%s' kernel.bin) / 512 + 1 )); \
 	[ $$ksect -gt 254 ] && ksect=254; \
 	printf '%b' "\\x$$(printf '%02x' $$ksect)" | dd of=boot.bin bs=1 seek=27 count=1 conv=notrunc 2>/dev/null; \
@@ -38,10 +37,15 @@ os.img: boot.bin kernel.bin
 
 run: os.img storage.img
 	@echo "[*] Booting HEXA OS in QEMU..."
-	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic
+	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -d cpu_reset -no-reboot
+
+debug: kernel.elf os.img storage.img
+	@echo "[*] Starting QEMU with GDB stub on port 1234..."
+	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -S -s &
+	@gdb -ex "target remote localhost:1234" -ex "symbol-file kernel.elf" -ex "b kernel_main" -ex "c"
 
 clean:
 	rm -f *.o *.elf *.bin os.img storage.img
 	@echo "[✓] Cleaned."
 
-.PHONY: all run clean
+.PHONY: all run debug clean
