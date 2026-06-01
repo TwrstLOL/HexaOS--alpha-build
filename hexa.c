@@ -237,6 +237,10 @@ void update_cursor() {
 }
 
 static inline void serial_putc(char c) {
+  for (int i = 0; i < 10000; i++) {
+    if (inb(0x3F8 + 5) & 0x20) break;
+    __asm__ volatile("pause");
+  }
   outb(0x3F8, c);
 }
 
@@ -2647,8 +2651,19 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "logout") == 0) { cmd_logout(); return 1; }
   if (strcmp(cmd, "sleep") == 0) { sleep_ticks(atoi(args) * 1000); return 1; }
   if (strcmp(cmd, "panic") == 0) { cmd_panic(); return 1; }
-  if (strcmp(cmd, "outb") == 0) { print_string("Done\n"); return 1; }
-  if (strcmp(cmd, "inb") == 0) { print_string("Done\n"); return 1; }
+  if (strcmp(cmd, "outb") == 0) {
+    char p_s[8]={0}, v_s[8]={0}; int i=0,j=0;
+    while(args[i]&&args[i]!=' '&&j<7){p_s[j++]=args[i++];}
+    while(args[i]==' '){i++;}j=0;
+    while(args[i]&&j<7){v_s[j++]=args[i++];}
+    if(p_s[0]&&v_s[0]) outb(atoi(p_s),(uint8_t)atoi(v_s));
+    print_string("Done\n"); return 1;
+  }
+  if (strcmp(cmd, "inb") == 0) {
+    uint16_t port=atoi(args);
+    char b[16]; itoa(inb(port),b,10);
+    print_string(b); print_string("\n"); return 1;
+  }
   if (strcmp(cmd, "hostname") == 0) { cmd_hostname(args); return 1; }
   if (strcmp(cmd, "id") == 0) { cmd_id(); return 1; }
   if (strcmp(cmd, "wc") == 0) { cmd_wc(args); return 1; }
@@ -2767,12 +2782,18 @@ void kernel_main(void) __attribute__((section(".text.entry")));
 // Alias kernel_entry to kernel_main for bootloader compatibility
 __asm__(".globl kernel_entry; .set kernel_entry, kernel_main;");
 
+// Dummy entry for shell task slot — state gets overwritten on first context switch
+void shell_entry(void) {
+    sti();
+    while (1) hlt();
+}
+
 // User-space entry point
 void _user_entry(void) {
     while (1) {
         uint32_t t;
         __asm__ volatile("mov $3, %%eax; int $0x80" : "=a"(t));
-        for (volatile int i = 0; i < 200000; i++);
+        for (volatile int i = 0; i < 50000; i++);
     }
 }
 
@@ -2798,18 +2819,25 @@ void kernel_main(void) {
   print_color("[BOOT] Initializing scheduler...\n", 0x0A);
   scheduler_init();
 
-  print_color("[BOOT] Enabling interrupts...\n", 0x0A);
-  sti();
-
-  // Create a user-space task
-  int upid = task_create(_user_entry);
-  if (upid >= 0) {
-      print_color("[BOOT] User task created, PID=", 0x0A);
+  // Create tasks BEFORE enabling interrupts so the scheduler
+  // sees a fully consistent state on the first timer tick.
+  int user_pid = task_create(_user_entry);
+  if (user_pid >= 0) {
       char nb[16]; int bi = 0;
-      int n = upid; if (n == 0) { nb[bi++] = '0'; } else { while (n) { nb[bi++] = '0' + (n % 10); n /= 10; } nb[bi] = 0; for (int k=0;k<bi/2;k++){char t=nb[k];nb[k]=nb[bi-1-k];nb[bi-1-k]=t;} }
+      int n = user_pid; if (n == 0) { nb[bi++] = '0'; } else { while (n) { nb[bi++] = '0' + (n % 10); n /= 10; } nb[bi] = 0; for (int k=0;k<bi/2;k++){char t=nb[k];nb[k]=nb[bi-1-k];nb[bi-1-k]=t;} }
+      print_color("[BOOT] User task created, PID=", 0x0A);
       print_color(nb, 0x0A);
       print_color("\n", 0x0A);
   }
+
+  int shell_pid = task_create(shell_entry);
+  if (shell_pid >= 0) {
+      current_task = shell_pid;
+      tasks[shell_pid].state = TASK_RUNNING;
+  }
+
+  print_color("[BOOT] Enabling interrupts...\n", 0x0A);
+  sti();
 
   init_users();
   ata_init();
@@ -2818,6 +2846,7 @@ void kernel_main(void) {
 
   serial_putc('['); serial_putc('O'); serial_putc('K'); serial_putc(']'); serial_putc('\n');
 
+  // Fall into the shell — first timer IRQ will save our state and switch
   char input_buffer[128], cmd[32], args[96];
 
   while (1) {
@@ -2860,7 +2889,6 @@ void kernel_main(void) {
           strcat(expanded, " ");
           strcat(expanded, args);
         }
-        // Re-parse expanded command
         int ei = 0, ej = 0;
         while (expanded[ei] != ' ' && expanded[ei] != '\0' && ej < 31)
           cmd[ej++] = expanded[ei++];
@@ -2881,3 +2909,5 @@ void kernel_main(void) {
     }
   }
 }
+
+

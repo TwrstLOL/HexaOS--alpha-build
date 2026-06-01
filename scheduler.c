@@ -103,9 +103,7 @@ void task_exit(void) {
 
 void schedule(struct regs *r) {
     if (num_tasks <= 1) return;
-    // Save current task's register state pointer (r points to the regs struct on stack)
     tasks[current_task].esp = (uint32_t)r;
-    // Find next ready task
     int next = current_task;
     for (int i = 1; i < MAX_TASKS; i++) {
         int candidate = (current_task + i) % MAX_TASKS;
@@ -115,42 +113,67 @@ void schedule(struct regs *r) {
         }
     }
     if (next == current_task) return;
-    // Switch to next task
     tasks[current_task].state = TASK_READY;
     current_task = next;
     tasks[next].state = TASK_RUNNING;
     tss[0] = tasks[next].kernel_esp;
-    // Copy next task's saved register state into the current stack's regs struct
-    // When irq_common pops the regs and IRETs, it will return to the next task
-    struct regs *next_regs = (struct regs *)tasks[next].esp;
-    r->gs = next_regs->gs;
-    r->fs = next_regs->fs;
-    r->es = next_regs->es;
-    r->ds = next_regs->ds;
-    r->edi = next_regs->edi;
-    r->esi = next_regs->esi;
-    r->ebp = next_regs->ebp;
-    r->esp = next_regs->esp;
-    r->ebx = next_regs->ebx;
-    r->edx = next_regs->edx;
-    r->ecx = next_regs->ecx;
-    r->eax = next_regs->eax;
-    r->int_no = next_regs->int_no;
-    r->err_code = next_regs->err_code;
-    r->eip = next_regs->eip;
-    r->cs = next_regs->cs;
-    r->eflags = next_regs->eflags;
-    r->user_esp = next_regs->user_esp;
-    r->user_ss = next_regs->user_ss;
+    // Directly restore the next task's saved register state.
+    // The task stack layout (built by task_create) matches:
+    //   [DS|ES|FS|GS] [EDI|ESI|EBP|ESP_skip|EBX|EDX|ECX|EAX] [int_no|err_code] [EIP|CS|EFLAGS|user_ESP|user_SS]
+    // We skip the 4 segment registers (16 bytes), POPA the general regs,
+    // skip int_no/err_code (8 bytes), then IRET back to the task.
+    __asm__ volatile(
+        "mov %0, %%esp\n"
+        "add $16, %%esp\n"
+        "popa\n"
+        "add $8, %%esp\n"
+        "iret"
+        :
+        : "r"(tasks[next].esp)
+        : "memory"
+    );
+    /* NOT REACHED */
+}
+
+int task_create_user(void (*entry)(void)) {
+    if (num_tasks >= MAX_TASKS) return -1;
+    int pid = -1;
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (tasks[i].state == TASK_DEAD) { pid = i; break; }
+    }
+    if (pid < 0) return -1;
+    struct task *t = &tasks[pid];
+    t->pid = pid;
+    t->state = TASK_READY;
+    t->page_dir = 0;
+    // User stack (4KB allocated from kernel space)
+    static uint8_t user_stacks[MAX_TASKS][4096];
+    uint32_t user_stack_top = (uint32_t)user_stacks[pid] + 4096;
+    uint32_t *sp = (uint32_t *)((uint32_t)user_stacks[pid] + 4096);
+    // Build IRET frame for ring 3 transition
+    *--sp = 0x20;                     // SS = ring 3 data segment
+    *--sp = user_stack_top;           // user ESP (fresh stack top)
+    *--sp = 0x202;                    // EFLAGS (IF set)
+    *--sp = 0x18;                     // CS = ring 3 code segment
+    *--sp = (uint32_t)entry;          // EIP
+    *--sp = 0;                        // error code (dummy)
+    *--sp = 0;                        // int number (dummy)
+    // pusha registers
+    *--sp = 0; *--sp = 0; *--sp = 0; *--sp = 0;
+    *--sp = 0; *--sp = 0; *--sp = 0; *--sp = 0;
+    // segment registers
+    *--sp = 0x20; *--sp = 0x20; *--sp = 0x20; *--sp = 0x20;
+    t->esp = (uint32_t)sp;
+    t->ebp = 0;
+    t->kernel_esp = (uint32_t)t->stack + STACK_SIZE;
+    num_tasks++;
+    return pid;
 }
 
 void switch_to_user(void) {
     // This is called from the init task to enter user mode.
-    // Setup user code/data segments and jump to user space.
     extern void _user_entry(void);
-    // Use a simple user stack
     static uint8_t user_stack[4096];
-    // Enter user mode at _user_entry with ring 3 segments
     enter_userspace(
         (uint32_t)_user_entry,
         (uint32_t)user_stack + 4096,

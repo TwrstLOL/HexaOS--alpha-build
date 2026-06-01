@@ -161,7 +161,7 @@ syscall_stub:
     pop fs
     pop es
     pop ds
-    mov [esp + 28], eax    ; overwrite saved EAX with return value
+    mov [esp + 0], eax    ; overwrite saved EAX with return value
     popa
     add esp, 8
     iretd
