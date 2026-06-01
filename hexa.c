@@ -468,7 +468,7 @@ uint32_t rand() {
 static int find_file(const char *name);
 
 void cmd_help() {
-  print_string("HEXA OS 5.0 Commands\n");
+  print_string("HEXA OS 5.1 Commands\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep\n");
   print_string("          hostname, uptime, true, false, shutdown\n");
@@ -1055,17 +1055,17 @@ void cmd_neofetch(void) {
   char buf[16];
   clear_screen();
   print_color("    __________________________\n", 0x0B);
-  print_color("   /   H E X A   O S   5.0   \\\n", 0x0B);
+  print_color("   /   H E X A   O S   5.1   \\\n", 0x0B);
   print_color("  |  Paging  ·  Scheduler     |\n", 0x0B);
   print_color("  |  User Mode  ·  Syscalls   |\n", 0x0B);
   print_color("  |  32-bit Protected Mode    |\n", 0x0B);
   print_color("   \\________________________/\n", 0x0B);
   print_string(" ┌──────────────────────────────┐\n");
-  print_string(" │  OS:       "); print_color("HEXA OS 5.0 i386", 0x0A); print_string("         │\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 5.1 i386", 0x0A); print_string("         │\n");
   print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
   for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
   print_string("│\n");
-  print_string(" │  Version:  "); print_color("5.0 \"Paging Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Version:  "); print_color("5.1 \"Scheduling Edition\"", 0x0E); print_string("    │\n");
   print_string(" │  Kernel:   "); print_color(v, 0x0A); 
   for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
   print_string("│\n");
@@ -1135,7 +1135,7 @@ void cmd_neofetch(void) {
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
   print_string("       │\n");
   // Commands / features
-  print_string(" │  Shell:   HEXA CLI v5.0  80x25  │\n");
+  print_string(" │  Shell:   HEXA CLI v5.1  80x25  │\n");
   print_string(" │  Cache:   ");
   print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
   print_string("   │\n");
@@ -1173,7 +1173,7 @@ void do_login(void) {
   print_color(
     "╭──────────────────────────────╮\n"
     "│         H E X A   O S        │\n"
-    "│        Version 5.0           │\n"
+    "│        Version 5.1           │\n"
     "│   Paging · Scheduler · Sys   │\n"
     "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
@@ -2045,7 +2045,7 @@ void cmd_logo(void) {
   print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
   print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
   print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
-  print_color("  ║         5.0  PAGING EDITION      ║\n", 0x0E);
+  print_color("  ║         5.1  PAGING EDITION      ║\n", 0x0E);
   print_color("  ║                                  ║\n", 0x0A);
   print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
   print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
@@ -2193,9 +2193,9 @@ static struct pkg_entry pkg_db[] = {
     {"memory.txt","Memory: watch color sequence and repeat it!"},
   }, 4},
   {"docs", {
-    {"readme.txt","HEXA OS 5.0 - Paging, interrupts, scheduler, syscalls, user mode!"},
+    {"readme.txt","HEXA OS 5.1 - Paging, interrupts, scheduler, syscalls, user mode!"},
     {"commands.txt","Type 'help' to list all available commands (70+)."},
-    {"about.txt","HEXA OS 5.0: Paging Edition - IDT, PIC, PIT, paging, kmalloc, scheduler, syscalls!"},
+    {"about.txt","HEXA OS 5.1: Paging Edition - IDT, PIC, PIT, paging, kmalloc, scheduler, syscalls!"},
   }, 3},
   {"fun", {
     {"quotes.txt","\"The only constant is change.\" - Heraclitus"},
@@ -2636,7 +2636,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 5.0 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 5.1 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "touch") == 0) { cmd_touch(args); save_data(); return 1; }
   if (strcmp(cmd, "ls") == 0) { cmd_ls(); return 1; }
