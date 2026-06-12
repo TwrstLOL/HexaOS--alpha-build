@@ -171,6 +171,26 @@ uint32_t syscall_handler(struct regs *r) {
             return sys_lseek((int)arg1, (int)arg2, (int)arg3);
         case SYS_MMAP:
             return sys_mmap(arg1, arg2);
+        case SYS_GETCWD: {
+            char *buf = (char *)arg1;
+            int len = (int)arg2;
+            if (!buf || len <= 0) return SYS_EINVAL;
+            const char *path = "/home/";
+            int plen = 0;
+            while (path[plen] && plen < len - 1) { buf[plen] = path[plen]; plen++; }
+            buf[plen] = 0;
+            return plen;
+        }
+        case SYS_STAT: {
+            struct vfs_node node;
+            int ret = vfs_stat((const char *)arg1, &node);
+            if (ret < 0) return ret;
+            if (arg2) {
+                struct vfs_node *out = (struct vfs_node *)arg2;
+                *out = node;
+            }
+            return 0;
+        }
         case SYS_MUNMAP:
             return sys_munmap(arg1, arg2);
         default:

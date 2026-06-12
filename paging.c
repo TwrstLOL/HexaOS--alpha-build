@@ -11,6 +11,8 @@ static uint8_t pmm_bitmap[PMM_BMAP_SZ];
 static uint32_t pmm_max_page = 0;
 static uint32_t pmm_last_alloc = 0;
 
+uint32_t pmm_get_total_pages(void) { return pmm_max_page; }
+
 #define PAGE_FREE 0
 #define PAGE_USED 1
 

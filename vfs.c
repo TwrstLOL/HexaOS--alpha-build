@@ -7,6 +7,21 @@
 extern int f_count;
 extern int find_file(const char *name);
 extern int check_perm(int idx, int want_write);
+#define CONTENT_MAX 2006
+
+// String functions from hexa.c
+extern char *strcpy(char *dest, const char *src);
+extern size_t strlen(const char *str);
+
+// hexa.c file table structure
+struct hexa_file {
+  char name[32];
+  char content[2006];
+  int size;
+  int owner;
+  uint16_t mode;
+};
+extern struct hexa_file f_table[];
 
 // FD table for the whole system
 #define VFS_MAX_FDS 128
@@ -79,11 +94,14 @@ int vfs_read(int fd, char *buf, int count) {
         return count;
     }
     if (vfs_fds[fd].type != 1) return -1;
+    int idx = vfs_fds[fd].ref;
+    if (idx < 0 || idx >= f_count) return -1;
     int pos = vfs_fds[fd].pos;
     int n = 0;
-    while (n < count && pos + n < 512) n++;
-    for (int i = 0; i < n; i++) buf[i] = ' ';
-    buf[0] = 0;
+    while (n < count && pos + n < f_table[idx].size) {
+        buf[n] = f_table[idx].content[pos + n];
+        n++;
+    }
     vfs_fds[fd].pos += n;
     return n;
 }
@@ -102,7 +120,18 @@ int vfs_write(int fd, const char *buf, int count) {
         return count;
     }
     if (vfs_fds[fd].type != 1) return -1;
-    return count;
+    int idx = vfs_fds[fd].ref;
+    if (idx < 0 || idx >= f_count) return -1;
+    int pos = vfs_fds[fd].pos;
+    int n = 0;
+    while (n < count && pos + n < 2048 && n < CONTENT_MAX - pos - 1) {
+        f_table[idx].content[pos + n] = buf[n];
+        n++;
+    }
+    f_table[idx].content[pos + n] = '\0';
+    if (pos + n > f_table[idx].size) f_table[idx].size = pos + n;
+    vfs_fds[fd].pos += n;
+    return n;
 }
 
 int vfs_lseek(int fd, int offset, int whence) {
@@ -118,9 +147,18 @@ int vfs_lseek(int fd, int offset, int whence) {
 }
 
 int vfs_stat(const char *path, struct vfs_node *node) {
-    (void)path;
-    (void)node;
-    return -1;
+    if (!path || !node) return -1;
+    int idx = find_file(path);
+    if (idx < 0) return -1;
+    strcpy(node->name, f_table[idx].name);
+    node->type = 0;
+    int len = strlen(node->name);
+    if (len > 0 && node->name[len-1] == '/') node->type = 1;
+    node->size = f_table[idx].size;
+    node->owner = f_table[idx].owner;
+    node->mode = f_table[idx].mode;
+    node->ref_count = 1;
+    return 0;
 }
 
 int vfs_dup(int old_fd) {

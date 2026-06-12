@@ -254,7 +254,10 @@ void irq_handler(struct regs *r) {
         if (sc == 0xAA || sc == 0xB6) { shift_pressed = 0; goto pic_eoi; }
         if (sc & 0x80) goto pic_eoi;
         char c = shift_pressed ? kbd_map_shift[sc] : kbd_map[sc];
-        if (c == 0) goto pic_eoi;
+        // Map arrow keys to special high-bit values
+        if (sc == 0x48) c = (char)0x80;  // up arrow
+        else if (sc == 0x50) c = (char)0x81;  // down arrow
+        else if (c == 0) goto pic_eoi;
         int next = (kbuf_head + 1) % KBUF_SIZE;
         if (next != kbuf_tail) {
             kbuf[kbuf_head] = c;

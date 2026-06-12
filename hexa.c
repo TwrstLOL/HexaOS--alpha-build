@@ -21,7 +21,7 @@ static uint8_t current_color = 0x0F; // White on black
 #define MAX_USERS 12
 #define MAX_FILES 64
 #define NAME_MAX 32
-#define CONTENT_MAX 512
+#define CONTENT_MAX 2006
 
 // Forward declarations for password hash functions
 static uint32_t pwd_hash(const char *str, uint8_t salt);
@@ -49,7 +49,7 @@ static int u_cur = 0;
 #define PERM_OTH_X   0x001
 #define PERM_DEFAULT 0x1A4  // owner rw-, grp r--, oth r--
 
-static struct {
+struct {
   char name[NAME_MAX];
   char content[CONTENT_MAX];
   int size;
@@ -369,8 +369,9 @@ char get_char(int *special_key) {
     // Check IRQ keyboard buffer
     int c = kb_getchar();
     if (c > 0) {
-      // Map arrow keys from IRQ keyboard
-      // We handle them through special escape sequences
+      // Map special high-bit values from IRQ keyboard
+      if (c == 0x80 && special_key) { *special_key = 1; return 0; }
+      if (c == 0x81 && special_key) { *special_key = 2; return 0; }
       return (char)c;
     }
     // Poll keyboard directly as fallback
@@ -472,9 +473,10 @@ uint32_t rand() {
 
 // ----------------- Shell Commands -----------------
 int find_file(const char *name);
+static int execute_cmd(const char *cmd, char *args);
 
 void cmd_help() {
-  print_string("HEXA OS 5.1 Commands\n");
+  print_string("HEXA OS 6.0 Commands (90+)\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep\n");
   print_string("          hostname, uptime, true, false, shutdown\n");
@@ -496,8 +498,12 @@ void cmd_help() {
                  "          excuse, compliment, hack, bsod\n");
   if (find_file(".games") >= 0)
     print_string(" Games:   snake, tictactoe, hangman, memory\n");
+  if (find_file(".games") >= 0)
+    print_string("          tetris\n");
   print_string(" Info:    uname, uptime, about, mem, beep, history\n");
-  print_string("          dmesg, ps, kill, wait\n");
+  print_string("          dmesg, ps, kill, wait, free, sysinfo\n");
+  print_string(" New:     clock, ping, factor, hexdump, du, rev\n");
+  print_string("          shasum, watch\n");
   print_string("------------------------------------\n");
   print_string(" Pkg mgmt: ayo help\n");
 }
@@ -843,6 +849,157 @@ void cmd_snake(void) {
   clear_screen();
 }
 
+// ----- TETRIS GAME -----
+#define TET_TW 10
+#define TET_TH 20
+#define TET_TOX 25
+#define TET_TOY 1
+
+static const int tetris_shapes[7][4][4] = {
+  {{1,1,1,1},{0,0,0,0},{0,0,0,0},{0,0,0,0}},
+  {{1,1,0,0},{1,1,0,0},{0,0,0,0},{0,0,0,0}},
+  {{0,1,0,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}},
+  {{0,1,1,0},{1,1,0,0},{0,0,0,0},{0,0,0,0}},
+  {{1,1,0,0},{0,1,1,0},{0,0,0,0},{0,0,0,0}},
+  {{1,0,0,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}},
+  {{0,0,1,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}}
+};
+static const int tetris_colors[7] = {0x0B, 0x0E, 0x0D, 0x0A, 0x0C, 0x09, 0x07};
+static int tet_board[TET_TH][TET_TW];
+static int tet_px, tet_py, tet_type, tet_rot, tet_score, tet_lines, tet_level, tet_go, tet_drop;
+
+static int tet_check_collision(int type, int rot, int bx, int by) {
+  for (int y = 0; y < 4; y++)
+    for (int x = 0; x < 4; x++)
+      if (tetris_shapes[type][(rot) % 4][y * 4 + x]) {
+        int nx = bx + x, ny = by + y;
+        if (nx < 0 || nx >= TET_TW || ny >= TET_TH) return 1;
+        if (ny >= 0 && tet_board[ny][nx]) return 1;
+      }
+  return 0;
+}
+
+static void tet_lock_piece(void) {
+  for (int y = 0; y < 4; y++)
+    for (int x = 0; x < 4; x++)
+      if (tetris_shapes[tet_type][tet_rot % 4][y * 4 + x]) {
+        int bx = tet_px + x, by = tet_py + y;
+        if (by >= 0 && by < TET_TH && bx >= 0 && bx < TET_TW)
+          tet_board[by][bx] = tet_type + 1;
+      }
+}
+
+static int tet_clear_lines(void) {
+  int cleared = 0;
+  for (int y = 0; y < TET_TH; y++) {
+    int full = 1;
+    for (int x = 0; x < TET_TW; x++)
+      if (!tet_board[y][x]) { full = 0; break; }
+    if (full) {
+      cleared++;
+      for (int ky = y; ky > 0; ky--)
+        for (int kx = 0; kx < TET_TW; kx++)
+          tet_board[ky][kx] = tet_board[ky - 1][kx];
+      for (int kx = 0; kx < TET_TW; kx++) tet_board[0][kx] = 0;
+    }
+  }
+  return cleared;
+}
+
+static void tet_new_piece(void) {
+  tet_type = rand() % 7;
+  tet_rot = 0;
+  tet_px = TET_TW / 2 - 2;
+  tet_py = 0;
+}
+
+static void tet_draw_board(void) {
+  for (int y = 0; y < TET_TH; y++)
+    for (int x = 0; x < TET_TW; x++) {
+      int v = tet_board[y][x];
+      if (v)
+        VGA_BUFFER[(TET_TOY + 1 + y) * 80 + TET_TOX + 1 + x] = (tetris_colors[(v - 1) % 7] << 8) | '#';
+      else
+        VGA_BUFFER[(TET_TOY + 1 + y) * 80 + TET_TOX + 1 + x] = (0x00 << 8) | ' ';
+    }
+  for (int y = 0; y < 4; y++)
+    for (int x = 0; x < 4; x++)
+      if (tetris_shapes[tet_type][tet_rot % 4][y * 4 + x]) {
+        int sy = tet_py + y, sx = tet_px + x;
+        if (sy >= 0 && sy < TET_TH && sx >= 0 && sx < TET_TW)
+          VGA_BUFFER[(TET_TOY + 1 + sy) * 80 + TET_TOX + 1 + sx] = (tetris_colors[tet_type] << 8) | '@';
+      }
+  char buf[16];
+  cursor_x = TET_TW + 4; cursor_y = 4;
+  print_string("Score: "); itoa(tet_score, buf, 10); print_string(buf); print_string("   ");
+  cursor_x = TET_TW + 4; cursor_y = 5;
+  print_string("Lines: "); itoa(tet_lines, buf, 10); print_string(buf); print_string("   ");
+  cursor_x = TET_TW + 4; cursor_y = 6;
+  print_string("Level: "); itoa(tet_level, buf, 10); print_string(buf); print_string("   ");
+}
+
+void cmd_tetris(void) {
+  if (find_file(".games") < 0) {
+    print_string("Package required: ayo add games\n");
+    print_string("(use 'diese' if not root)\n");
+    return;
+  }
+  memset(tet_board, 0, sizeof(tet_board));
+  tet_score = 0; tet_lines = 0; tet_level = 1; tet_go = 0; tet_drop = 0;
+  clear_screen();
+  for (int x = 0; x < TET_TW + 2; x++) {
+    VGA_BUFFER[TET_TOY * 80 + TET_TOX + x] = 0x0F << 8 | '#';
+    VGA_BUFFER[(TET_TOY + TET_TH + 1) * 80 + TET_TOX + x] = 0x0F << 8 | '#';
+  }
+  for (int y = 0; y < TET_TH + 2; y++) {
+    VGA_BUFFER[(TET_TOY + y) * 80 + TET_TOX] = 0x0F << 8 | '#';
+    VGA_BUFFER[(TET_TOY + y) * 80 + TET_TOX + TET_TW + 1] = 0x0F << 8 | '#';
+  }
+  cursor_x = TET_TW + 6; cursor_y = 2;
+  print_string("TETRIS");
+  cursor_x = TET_TW + 4; cursor_y = 8;
+  print_string("WASD: Move/Rot");
+  cursor_x = TET_TW + 4; cursor_y = 9;
+  print_string("Q: Quit");
+  tet_new_piece();
+  while (!tet_go) {
+    do_tick(); tet_drop++;
+    if (kb_hit()) {
+      char c = getch_nb();
+      if (c == 'a' || c == 'A') { if (!tet_check_collision(tet_type, tet_rot, tet_px - 1, tet_py)) tet_px--; }
+      else if (c == 'd' || c == 'D') { if (!tet_check_collision(tet_type, tet_rot, tet_px + 1, tet_py)) tet_px++; }
+      else if (c == 'w' || c == 'W') { int nr = (tet_rot + 1) % 4; if (!tet_check_collision(tet_type, nr, tet_px, tet_py)) tet_rot = nr; }
+      else if (c == 's' || c == 'S') { if (!tet_check_collision(tet_type, tet_rot, tet_px, tet_py + 1)) { tet_py++; tet_drop = 0; } }
+      else if (c == 'q' || c == 'Q') { tet_go = 1; break; }
+    }
+    int ds = 15 - tet_level; if (ds < 2) ds = 2;
+    if (tet_drop >= ds) {
+      tet_drop = 0;
+      if (!tet_check_collision(tet_type, tet_rot, tet_px, tet_py + 1)) {
+        tet_py++;
+      } else {
+        tet_lock_piece();
+        int cl = tet_clear_lines();
+        if (cl > 0) { tet_lines += cl; tet_score += cl * 100 * tet_level; tet_level = (tet_lines / 5) + 1; }
+        tet_new_piece();
+        if (tet_check_collision(tet_type, tet_rot, tet_px, tet_py)) { tet_go = 2; break; }
+      }
+    }
+    tet_draw_board();
+  }
+  clear_screen();
+  if (tet_go == 2) {
+    char buf[16];
+    print_string("Tetris Over! Score: "); itoa(tet_score, buf, 10); print_string(buf);
+    print_string("  Lines: "); itoa(tet_lines, buf, 10); print_string(buf);
+    print_string("  Level: "); itoa(tet_level, buf, 10); print_string(buf);
+    print_string("\n");
+  }
+  print_string("Press any key to continue...");
+  get_char(0);
+  clear_screen();
+}
+
 // ----- TIC-TAC-TOE -----
 void cmd_tictactoe(void) {
   if (find_file(".games") < 0) {
@@ -1062,17 +1219,17 @@ void cmd_neofetch(void) {
   char buf[16];
   clear_screen();
   print_color("    __________________________\n", 0x0B);
-  print_color("   /   H E X A   O S   5.1   \\\n", 0x0B);
-  print_color("  |  Paging  ·  Scheduler     |\n", 0x0B);
-  print_color("  |  User Mode  ·  Syscalls   |\n", 0x0B);
+  print_color("   /   H E X A   O S   6.0   \\\n", 0x0B);
+  print_color("  |  VFS  ·  Tetris  ·  Pipe  |\n", 0x0B);
+  print_color("  |  90+ Cmds  ·  ATA Storage |\n", 0x0B);
   print_color("  |  32-bit Protected Mode    |\n", 0x0B);
   print_color("   \\________________________/\n", 0x0B);
   print_string(" ┌──────────────────────────────┐\n");
-  print_string(" │  OS:       "); print_color("HEXA OS 5.1 i386", 0x0A); print_string("         │\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 6.0 i386", 0x0A); print_string("         │\n");
   print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
   for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
   print_string("│\n");
-  print_string(" │  Version:  "); print_color("5.1 \"Scheduling Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Version:  "); print_color("6.0 \"VFS Edition\"", 0x0E); print_string("    │\n");
   print_string(" │  Kernel:   "); print_color(v, 0x0A); 
   for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
   print_string("│\n");
@@ -1142,7 +1299,7 @@ void cmd_neofetch(void) {
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
   print_string("       │\n");
   // Commands / features
-  print_string(" │  Shell:   HEXA CLI v5.1  80x25  │\n");
+  print_string(" │  Shell:   HEXA CLI v6.0  80x25  │\n");
   print_string(" │  Cache:   ");
   print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
   print_string("   │\n");
@@ -1180,8 +1337,8 @@ void do_login(void) {
   print_color(
     "╭──────────────────────────────╮\n"
     "│         H E X A   O S        │\n"
-    "│        Version 5.1           │\n"
-    "│   Paging · Scheduler · Sys   │\n"
+    "│        Version 6.0           │\n"
+    "│   VFS · Tetris · 90+ Cmds   │\n"
     "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
     get_line(name, NAME_MAX);
@@ -1632,9 +1789,11 @@ void cmd_which(const char *name) {
     "outb","inb","mv","cp","head","diese","hostname","id","wc","tail",
     "history","which","cowsay","cmatrix","dice","8ball","logo","sl",
     "morse","russian","insult","excuse","compliment","hack","bsod",
-    "true","false","sort","env","ayo","chmod","chown","grep","find",
+    "true","false","sort","env","ayo","chmod","chown","grep","find","tetris",
     "diff","uniq","alias","unalias","pwd","mkdir","tee","basename",
-    "dirname","ps","kill","wait","dmesg","seq","tr","who"
+    "dirname","ps","kill","wait","dmesg","seq","tr","who",
+    "clock","free","ping","factor","hexdump","du","rev","shasum",
+    "sysinfo","watch"
   };
   int list_count = sizeof(list)/sizeof(list[0]);
   for (int i = 0; i < list_count; i++)
@@ -2101,7 +2260,7 @@ void cmd_logo(void) {
   print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
   print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
   print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
-  print_color("  ║         5.1  PAGING EDITION      ║\n", 0x0E);
+  print_color("  ║         6.0  VFS EDITION         ║\n", 0x0E);
   print_color("  ║                                  ║\n", 0x0A);
   print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
   print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
@@ -2232,6 +2391,279 @@ void cmd_bsod(void) {
   get_char(0);
   current_color = 0x0F;
   clear_screen();
+}
+
+// ---- Powerful New Commands v6.0 ----
+void cmd_clock(void) {
+  clear_screen();
+  print_string("HEXA OS Live Clock - Press any key to exit\n");
+  print_string("==========================================\n");
+  while (1) {
+    if (kb_hit()) { get_char(0); break; }
+    while (get_update_in_progress_flag());
+    uint8_t s = get_rtc_register(0x00);
+    uint8_t m = get_rtc_register(0x02);
+    uint8_t h = get_rtc_register(0x04);
+    uint8_t d = get_rtc_register(0x07);
+    uint8_t mo = get_rtc_register(0x08);
+    uint8_t y = get_rtc_register(0x09);
+    uint8_t rtc_b = get_rtc_register(0x0B);
+    if (!(rtc_b & 0x04)) {
+      s = (s & 0x0F) + ((s / 16) * 10);
+      m = (m & 0x0F) + ((m / 16) * 10);
+      h = ((h & 0x0F) + (((h & 0x70) / 16) * 10)) | (h & 0x80);
+      d = (d & 0x0F) + ((d / 16) * 10);
+      mo = (mo & 0x0F) + ((mo / 16) * 10);
+      y = (y & 0x0F) + ((y / 16) * 10);
+    }
+    char buf[16];
+    // Write time at cursor position (line 2)
+    int old_x = cursor_x, old_y = cursor_y;
+    cursor_x = 10; cursor_y = 2;
+    print_string("20"); itoa(y, buf, 10); print_string(buf);
+    print_string("-"); if (mo < 10) put_char('0', 0x0F);
+    itoa(mo, buf, 10); print_string(buf);
+    print_string("-"); if (d < 10) put_char('0', 0x0F);
+    itoa(d, buf, 10); print_string(buf);
+    print_string("  ");
+    if (h < 10) put_char('0', 0x0F);
+    itoa(h, buf, 10); print_string(buf);
+    print_string(":"); if (m < 10) put_char('0', 0x0F);
+    itoa(m, buf, 10); print_string(buf);
+    print_string(":"); if (s < 10) put_char('0', 0x0F);
+    itoa(s, buf, 10); print_string(buf);
+    // Show ticks
+    cursor_x = 10; cursor_y = 3;
+    print_string("Uptime: "); itoa(system_ticks / 100, buf, 10); print_string(buf); print_string("s");
+    cursor_x = old_x; cursor_y = old_y;
+    for (volatile int d = 0; d < 30000; d++);
+  }
+  clear_screen();
+}
+
+void cmd_free(void) {
+  char buf[16];
+  uint32_t total_pages = pmm_get_total_pages();
+  uint32_t total = pmm_count_free() + (total_pages - pmm_count_free());
+  uint32_t used = total - pmm_count_free();
+  print_string("Memory Statistics:\n");
+  print_string("------------------\n");
+  print_string("Total:   "); itoa(total * 4, buf, 10); print_string(buf); print_string(" KB\n");
+  print_string("Used:    "); itoa(used * 4, buf, 10); print_string(buf); print_string(" KB (");
+  itoa(used * 100 / (total ? total : 1), buf, 10); print_string(buf); print_string("%)\n");
+  print_string("Free:    "); itoa(pmm_count_free() * 4, buf, 10); print_string(buf); print_string(" KB\n");
+  print_string("Pages:   "); itoa(total, buf, 10); print_string(buf); print_string(" total, ");
+  itoa(pmm_count_free(), buf, 10); print_string(buf); print_string(" free\n");
+  print_string("Heap:    1MB (0x800000)\n");
+  print_string("Files:   "); itoa(f_count, buf, 10); print_string(buf); print_string(" / ");
+  itoa(MAX_FILES, buf, 10); print_string(buf); print_string("\n");
+  print_string("Tasks:   "); itoa(num_tasks, buf, 10); print_string(buf); print_string(" / ");
+  itoa(MAX_TASKS, buf, 10); print_string(buf); print_string("\n");
+  print_string("Users:   "); itoa(u_count, buf, 10); print_string(buf); print_string(" / ");
+  itoa(MAX_USERS, buf, 10); print_string(buf); print_string("\n");
+}
+
+void cmd_ping(const char *host) {
+  if (!host[0]) { print_string("Usage: ping <hostname>\n"); return; }
+  char buf[16];
+  print_string("PING "); print_string(host); print_string(" (127.0.0.1): 56 bytes of data.\n");
+  int sent = 0, recv = 0;
+  for (int i = 0; i < 4; i++) {
+    if (kb_hit()) { get_char(0); break; }
+    sent++;
+    do_tick(); do_tick(); do_tick();
+    int lost = (rand() % 10) == 0;
+    if (!lost) {
+      recv++;
+      print_string("64 bytes from 127.0.0.1: seq=");
+      itoa(i, buf, 10); print_string(buf);
+      print_string(" ttl=64 time=");
+      itoa((rand() % 20) + 1, buf, 10); print_string(buf);
+      print_string(" ms\n");
+    } else {
+      print_string("Request timeout for seq=");
+      itoa(i, buf, 10); print_string(buf);
+      print_string("\n");
+    }
+    sleep_ticks(5000);
+  }
+  print_string("\n--- "); print_string(host); print_string(" ping statistics ---\n");
+  itoa(sent, buf, 10); print_string(buf); print_string(" packets sent, ");
+  itoa(recv, buf, 10); print_string(buf); print_string(" received, ");
+  itoa((sent - recv) * 100 / sent, buf, 10); print_string(buf); print_string("% packet loss\n");
+}
+
+void cmd_factor(const char *args) {
+  int n = atoi(args);
+  if (n <= 1) { print_string("Enter a number > 1.\n"); return; }
+  char buf[16];
+  print_string("Factors of "); itoa(n, buf, 10); print_string(buf); print_string(": ");
+  int first = 1;
+  int temp = n;
+  for (int p = 2; p * p <= temp; p++) {
+    while (temp % p == 0) {
+      if (!first) print_string(" * ");
+      itoa(p, buf, 10); print_string(buf);
+      first = 0;
+      temp /= p;
+    }
+  }
+  if (temp > 1) {
+    if (!first) print_string(" * ");
+    itoa(temp, buf, 10); print_string(buf);
+  }
+  print_string("\n");
+}
+
+void cmd_hexdump(const char *name) {
+  if (!name[0]) { print_string("Usage: hexdump <file>\n"); return; }
+  int idx = find_file(name);
+  if (idx < 0) { print_string("Not found.\n"); return; }
+  if (check_perm(idx, 0)) { print_color("Denied.\n", 0x0C); return; }
+  char buf[16];
+  int size = f_table[idx].size;
+  for (int pos = 0; pos < size; pos += 16) {
+    // Address
+    itoa(pos, buf, 16);
+    int blen = strlen(buf);
+    for (int p = 4 - blen; p > 0; p--) put_char('0', 0x0F);
+    print_string(buf);
+    print_string(": ");
+    // Hex bytes
+    for (int i = 0; i < 16; i++) {
+      if (pos + i < size) {
+        itoa((unsigned char)f_table[idx].content[pos + i], buf, 16);
+        if (strlen(buf) < 2) print_string("0");
+        print_string(buf);
+      } else {
+        print_string("  ");
+      }
+      if (i == 7) put_char(' ', 0x0F);
+      put_char(' ', 0x0F);
+    }
+    print_string(" |");
+    for (int i = 0; i < 16; i++) {
+      if (pos + i < size) {
+        unsigned char c = f_table[idx].content[pos + i];
+        put_char(c >= 32 && c < 127 ? c : '.', 0x0F);
+      }
+    }
+    print_string("|\n");
+  }
+  itoa(size, buf, 10); print_string(buf); print_string(" bytes\n");
+}
+
+void cmd_du(void) {
+  char buf[16];
+  int total = 0;
+  print_string("File Usage:\n");
+  print_string("-----------\n");
+  for (int i = 0; i < f_count; i++) {
+    itoa(f_table[i].size, buf, 10);
+    int pad = 6 - strlen(buf);
+    for (int p = 0; p < pad; p++) put_char(' ', 0x0F);
+    print_string(buf);
+    print_string(" B  ");
+    print_string(f_table[i].name);
+    print_string("\n");
+    total += f_table[i].size;
+  }
+  print_string("-----------\n");
+  itoa(total, buf, 10);
+  int pad = 6 - strlen(buf);
+  for (int p = 0; p < pad; p++) put_char(' ', 0x0F);
+  print_string(buf); print_string(" B  total (");
+  itoa(total / 1024, buf, 10); print_string(buf); print_string(" KB)\n");
+  itoa(f_count, buf, 10); print_string(buf); print_string(" files, ");
+  itoa(MAX_FILES - f_count, buf, 10); print_string(buf); print_string(" slots free\n");
+}
+
+void cmd_rev(const char *name) {
+  if (!name[0]) { print_string("Usage: rev <file>\n"); return; }
+  int idx = find_file(name);
+  if (idx < 0) { print_string("Not found.\n"); return; }
+  if (check_perm(idx, 0)) { print_color("Denied.\n", 0x0C); return; }
+  for (int i = f_table[idx].size - 1; i >= 0; i--)
+    put_char(f_table[idx].content[i], 0x0F);
+  print_string("\n");
+}
+
+void cmd_shasum(const char *name) {
+  if (!name[0]) { print_string("Usage: shasum <file>\n"); return; }
+  int idx = find_file(name);
+  if (idx < 0) { print_string("Not found.\n"); return; }
+  if (check_perm(idx, 0)) { print_color("Denied.\n", 0x0C); return; }
+  uint32_t h = 5381;
+  for (int i = 0; i < f_table[idx].size; i++)
+    h = ((h << 5) + h) + (unsigned char)f_table[idx].content[i];
+  char buf[16];
+  itoa(h, buf, 16);
+  int blen = strlen(buf);
+  for (int p = 8 - blen; p > 0; p--) put_char('0', 0x0F);
+  print_string(buf);
+  print_string("  ");
+  print_string(name);
+  print_string("\n");
+}
+
+void cmd_uptime_fmt(void) {
+  char buf[16];
+  uint32_t total_sec = system_ticks / 100;
+  uint32_t days = total_sec / 86400;
+  uint32_t hours = (total_sec % 86400) / 3600;
+  uint32_t mins = (total_sec % 3600) / 60;
+  uint32_t secs = total_sec % 60;
+  print_string("Uptime: ");
+  itoa(days, buf, 10); print_string(buf); print_string("d ");
+  itoa(hours, buf, 10); print_string(buf); print_string("h ");
+  itoa(mins, buf, 10); print_string(buf); print_string("m ");
+  itoa(secs, buf, 10); print_string(buf); print_string("s");
+  print_string("  ("); itoa(system_ticks, buf, 10); print_string(buf); print_string(" ticks)\n");
+}
+
+void cmd_watch(const char *args) {
+  if (!args[0]) { print_string("Usage: watch <command> [args]\n"); return; }
+  char cmd[32]={0}, cmdargs[96]={0};
+  int i=0,j=0;
+  while(args[i]&&args[i]!=' '&&j<31){cmd[j++]=args[i++];}
+  while(args[i]==' '){i++;} j=0;
+  while(args[i]&&j<95){cmdargs[j++]=args[i++];}
+  print_string("Watching '"); print_string(cmd); print_string("' (Ctrl-C to stop)...\n");
+  for (int iter = 0; iter < 20; iter++) {
+    if (kb_hit()) { get_char(0); break; }
+    clear_screen();
+    char b[16];
+    itoa(iter + 1, b, 10);
+    print_string("Watch iteration "); print_string(b); print_string(":\n");
+    print_string("-----------------\n");
+    execute_cmd(cmd, cmdargs);
+    print_string("\n--- Press any key to stop ---\n");
+    sleep_ticks(5000);
+  }
+}
+
+void cmd_sysinfo(void) {
+  char buf[16];
+  print_color("HEXA OS v6.0 - Quick System Info\n", 0x0B);
+  print_string("================================\n");
+  cmd_cpuinfo();
+  print_string("Memory: "); itoa(pmm_count_free() * 4, buf, 10); print_string(buf); print_string(" KB free\n");
+  print_string("Tasks:  "); itoa(num_tasks, buf, 10); print_string(buf); print_string(" running\n");
+  print_string("Files:  "); itoa(f_count, buf, 10); print_string(buf); print_string("\n");
+  print_string("Users:  "); itoa(u_count, buf, 10); print_string(buf);
+  print_string("  Current: "); print_string(u_table[u_cur].name); print_string("\n");
+  print_string("Disk:   "); print_string(disk_ok ? "online" : "offline"); print_string("\n");
+  print_string("Host:   "); print_string(hostname_str); print_string("\n");
+  cmd_uptime_fmt();
+  uint32_t a, d;
+  cpuid(1, &a, &d);
+  print_string("Features: ");
+  print_string(d & 0x100 ? "FPU " : "");
+  print_string(d & 0x2000 ? "MCE " : "");
+  print_string(d & 0x400000 ? "ACPI " : "");
+  print_string(d & 0x4000000 ? "HT " : "");
+  print_string(d & 0x20000000 ? "SSE " : "");
+  print_string("\n");
 }
 
 // ---- Package Manager (ayo) ----
@@ -2575,8 +3007,14 @@ static void ata_init(void) {
 #define HEADER_LBA    100
 #define USERS_LBA     101
 #define FILES_LBA     102
-#define FILE_SECTORS  2
+#define FILE_SECTORS  4
 #define FILES_TOTAL   (MAX_FILES * FILE_SECTORS)
+// Content per file across FILE_SECTORS sectors:
+// Sector 0: name(32)+size(4)+owner(4)+mode(2)+content[0..469]
+// Sector 1: content[470..981]
+// Sector 2: content[982..1493]
+// Sector 3: content[1494..2005] (last 42 unused)
+
 
 static int save_data(void) {
   if (!disk_ok) return 0;
@@ -2593,6 +3031,7 @@ static int save_data(void) {
   }
   ata_write(USERS_LBA, (uint16_t *)buf);
   for (int i = 0; i < f_count && i < MAX_FILES; i++) {
+    // Sector 0: metadata + content[0..469]
     memset(buf, 0, 512);
     memcpy(buf, f_table[i].name, 32);
     *(uint32_t *)(buf + 32) = f_table[i].size;
@@ -2600,9 +3039,19 @@ static int save_data(void) {
     *(uint16_t *)(buf + 40) = f_table[i].mode;
     memcpy(buf + 42, f_table[i].content, 470);
     ata_write(FILES_LBA + i * FILE_SECTORS, (uint16_t *)buf);
+    // Sector 1: content[470..981]
     memset(buf, 0, 512);
-    memcpy(buf, f_table[i].content + 470, 42);
+    memcpy(buf, f_table[i].content + 470, 512);
     ata_write(FILES_LBA + i * FILE_SECTORS + 1, (uint16_t *)buf);
+    // Sector 2: content[982..1493]
+    memset(buf, 0, 512);
+    memcpy(buf, f_table[i].content + 982, 512);
+    ata_write(FILES_LBA + i * FILE_SECTORS + 2, (uint16_t *)buf);
+    // Sector 3: content[1494..2005]
+    memset(buf, 0, 512);
+    int rem = f_table[i].size > 1494 ? (f_table[i].size - 1494 > 512 ? 512 : f_table[i].size - 1494) : 0;
+    if (rem > 0) memcpy(buf, f_table[i].content + 1494, rem);
+    ata_write(FILES_LBA + i * FILE_SECTORS + 3, (uint16_t *)buf);
   }
   return 1;
 }
@@ -2644,10 +3093,22 @@ static void load_data(void) {
     f_table[i].owner = *(uint32_t *)(buf + 36);
     f_table[i].mode = *(uint16_t *)(buf + 40);
     if (f_table[i].mode == 0) f_table[i].mode = PERM_DEFAULT;
+    int csize = f_table[i].size;
+    if (csize > CONTENT_MAX) csize = CONTENT_MAX;
     memcpy(f_table[i].content, buf + 42, 470);
     if (!ata_read(FILES_LBA + i * FILE_SECTORS + 1, (uint16_t *)buf)) return;
-    memcpy(f_table[i].content + 470, buf, 42);
-    f_table[i].content[f_table[i].size] = '\0';
+    memcpy(f_table[i].content + 470, buf, csize > 470 ? (csize - 470 > 512 ? 512 : csize - 470) : 0);
+    if (csize > 982) {
+      if (!ata_read(FILES_LBA + i * FILE_SECTORS + 2, (uint16_t *)buf)) return;
+      memcpy(f_table[i].content + 982, buf, csize - 982 > 512 ? 512 : csize - 982);
+    }
+    if (csize > 1494) {
+      if (!ata_read(FILES_LBA + i * FILE_SECTORS + 3, (uint16_t *)buf)) return;
+      int rem = csize - 1494;
+      memcpy(f_table[i].content + 1494, buf, rem > 512 ? 512 : rem);
+    }
+    f_table[i].content[csize] = '\0';
+    f_table[i].size = csize;
   }
 }
 
@@ -2680,6 +3141,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "tictactoe") == 0) { cmd_tictactoe(); return 1; }
   if (strcmp(cmd, "hangman") == 0) { cmd_hangman(); return 1; }
   if (strcmp(cmd, "memory") == 0) { cmd_memory(); return 1; }
+  if (strcmp(cmd, "tetris") == 0) { cmd_tetris(); return 1; }
   if (strcmp(cmd, "neofetch") == 0) { cmd_neofetch(); return 1; }
   if (strcmp(cmd, "banner") == 0) { cmd_banner(args); return 1; }
   if (strcmp(cmd, "yes") == 0) { cmd_yes(); return 1; }
@@ -2692,7 +3154,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 5.1 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.0 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "touch") == 0) { cmd_touch(args); save_data(); return 1; }
   if (strcmp(cmd, "ls") == 0) { cmd_ls(); return 1; }
@@ -2764,6 +3226,16 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "seq") == 0) { cmd_seq(args); return 1; }
   if (strcmp(cmd, "tr") == 0) { cmd_tr(args); return 1; }
   if (strcmp(cmd, "who") == 0) { cmd_who(); return 1; }
+  if (strcmp(cmd, "clock") == 0) { cmd_clock(); return 1; }
+  if (strcmp(cmd, "free") == 0) { cmd_free(); return 1; }
+  if (strcmp(cmd, "ping") == 0) { cmd_ping(args); return 1; }
+  if (strcmp(cmd, "factor") == 0) { cmd_factor(args); return 1; }
+  if (strcmp(cmd, "hexdump") == 0) { cmd_hexdump(args); return 1; }
+  if (strcmp(cmd, "du") == 0) { cmd_du(); return 1; }
+  if (strcmp(cmd, "rev") == 0) { cmd_rev(args); return 1; }
+  if (strcmp(cmd, "shasum") == 0) { cmd_shasum(args); return 1; }
+  if (strcmp(cmd, "sysinfo") == 0) { cmd_sysinfo(); return 1; }
+  if (strcmp(cmd, "watch") == 0) { cmd_watch(args); return 1; }
   if (strcmp(cmd, "mv") == 0) {
     char src[32]={0}, dst[32]={0}; int i=0,j=0;
     while(args[i]&&args[i]!=' '&&j<31){src[j++]=args[i++];}

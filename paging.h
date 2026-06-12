@@ -38,6 +38,7 @@ void pmm_init(uint32_t mem_size, uint32_t kernel_end);
 uint32_t pmm_alloc(void);
 void pmm_free(uint32_t addr);
 uint32_t pmm_count_free(void);
+uint32_t pmm_get_total_pages(void);
 
 void paging_init(void);
 uint32_t get_kernel_page_dir(void);

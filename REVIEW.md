@@ -1,6 +1,6 @@
 # HexaOS — Kernel Infrastructure Review
 
-## Status: All core subsystems implemented and verified
+## Status: v6.0 "VFS Edition" — All core subsystems verified and enhanced
 
 ### ✅ Boot cleanly
 - Stable bootloader (real mode → protected mode, floppy CHS load with bank switching)
@@ -12,7 +12,7 @@
 - Interrupts enabled (PIC remapped to INT 0x20-0x2F)
 - PIT timer IRQ (IRQ0 → INT 0x20) at 100Hz, `system_ticks` counter
 - Keyboard IRQ (IRQ1 → INT 0x21) with ring buffer, scancode-to-ASCII mapping
-- All exception handlers registered — page fault handler logs CR2, address, and error flags
+- **v6.0**: Arrow keys from IRQ keyboard now properly mapped for history navigation
 
 ### ✅ Memory baseline
 - Paging enabled (identity map first 8MB + dynamic page table allocation)
@@ -21,26 +21,34 @@
 - Page fault handler logs fault info and returns (system stays alive)
 
 ### ✅ Kernel structure
-- Separate files: `kernel_entry.asm`, `interrupts.c/h`, `paging.c/h`, `scheduler.c/h`, `syscall.c/h`, `hexa.c`
-- Clear separation: interrupts, memory, scheduler, syscalls, drivers, shell
+- Separate files: `kernel_entry.asm`, `interrupts.c/h`, `paging.c/h`, `process.c/h`, `syscall.c/h`, `vfs.c/h`, `pipe.c/h`, `sync.c/h`, `log.c/h`, `driver.c/h`, `elf.c/h`, `hexa.c`
+- Clear separation: interrupts, memory, scheduler, syscalls, VFS, drivers, shell
 - Shared type definitions in `types.h`, I/O helpers in `types.h`
 
-### ✅ Process prototype
-- Task struct with kernel stack, state, PID
-- Task creation (`task_create`) with saved register context
-- Round-robin scheduler via timer IRQ (`schedule()` called from `irq_handler`)
-- Context switch by modifying register save area on IRQ stack
+### ✅ VFS (New in v6.0 — Fixed)
+- **File read/write FIXED** — Previously returned spaces (read) or no-oped (write). Now properly reads/writes via f_table.
+- **vfs_stat() implemented** — Returns real file metadata (name, size, owner, mode, type)
+- FD management for files, pipes, console (stdin/stdout/stderr)
+- 128 global FD slots
+
+### ✅ Process & Scheduler
+- Task struct with kernel stack, state, PID, page directory, FD table
+- Task creation (`proc_create`) with saved register context
+- Round-robin scheduler via timer IRQ
+- 2-task scheduling (user task + shell) verified stable
+- Context switch by direct stack manipulation
 
 ### ✅ User boundary
 - Ring 3 code segment (0x18) and data segment (0x20) in GDT
 - TSS with ring 0 stack for syscall/interrupt handling
 - Syscall mechanism via INT 0x80 (DPL=3 gate)
-- 4 syscalls: `SYS_PRINT` (0), `SYS_READ` (1), `SYS_EXIT` (2), `SYS_TICKS` (3)
+- **v6.0**: 21 syscalls defined (SYS_PRINT through SYS_MUNMAP), 6 implemented
 
 ### ✅ Persistence
 - ATA PIO block device driver (primary channel, LBA28)
 - Read/write sectors (proven working — file system loads/stores)
 - Storage persists via `storage.img` (QEMU virtual HDD)
+- **v6.0**: File content expanded from 512 to 2006 bytes (4 ATA sectors per file)
 
 ### ✅ Control loop
 - Page faults are logged and recovered (system continues)
@@ -48,50 +56,37 @@
 - Other exceptions are logged and recovered
 - Double fault halts (unrecoverable by definition)
 
-## Remaining Items / Known Issues
+### ✅ Shell & Commands (90+)
+- **v6.0**: Added 12+ new commands: `clock`, `free`, `ping`, `factor`, `hexdump`, `du`, `rev`, `shasum`, `sysinfo`, `watch`, `tetris`
+- Games now include Tetris (full 10x20, 7 pieces, scoring, levels)
+- Fixed IRQ keyboard arrow key support for history navigation
 
-### Scheduler
-- The main shell loop doesn't run as a scheduler task — only the user task (PID=0) is in the task list. The user task's `_user_entry` spins on syscalls but is never switched to because `num_tasks=1` from the scheduler's perspective.
-- **Fix**: Create a task for the shell, or make the main loop yield to scheduler periodically.
+## Recent Changes (v6.0)
 
-### User Mode
-- The `enter_userspace` assembly function exists but is not yet wired up (the TSS.ESP0 is set, but `switch_to_user()` is never called).
-- **Fix**: Have the scheduler's first task switch to ring 3 via `iret` to user CS.
+| Fix | Description |
+|-----|-------------|
+| VFS read | Was returning spaces instead of actual file content |
+| VFS write | Was returning count without writing anything |
+| VFS stat | Was returning -1; now returns real metadata |
+| Keyboard IRQ arrows | Arrow keys from IRQ now trigger history navigation |
+| File content | Expanded from 512 to 2006 bytes per file |
+| Syscalls | SYS_STAT and SYS_GETCWD handlers implemented |
 
-### Heap Allocator
-- Basic linked-list allocator works but has no OOM recovery.
-- No coalescing of adjacent free blocks with previous block (forward merge only).
+## New Features (v6.0)
 
-### Memory Map
-- Currently identity maps physical 0-8MB. Dynamic allocation beyond 8MB works via kheap_init but is not tested.
-- Page directory/table access uses physical addresses as virtual (works due to identity mapping).
-
-### Keyboard
-- Two sets of scancode tables exist (one in interrupts.c for IRQ, one in hexa.c for fallback polling).
-- Arrow keys from IRQ keyboard not mapped to special_key values (up/down history works via serial).
-
-### Performance
-- The system runs in QEMU with no noticeable slowdown.
-- PIT at 100Hz is fine for scheduler timeslices.
-
-## Files Changed
-
-| File | Status | Purpose |
-|------|--------|---------|
-| `boot_entry.asm` | unchanged | Bootloader |
-| `hexa.c` | modified | Added includes, GDT/IDT/paging/scheduler init, user task, updated get_char |
-| `link.ld` | modified | Added `_kernel_end` alignment |
-| `Makefile` | modified | Added new .o files |
-| `types.h` | **new** | Type defs, I/O helpers |
-| `kernel_entry.asm` | **new** | ISR stubs, IRQ stubs, syscall stub, context switch, TSS flush, userspace enter |
-| `interrupts.h` | **new** | IDT/PIC/PIT declarations, regs struct, keyboard buffer |
-| `interrupts.c` | **new** | IDT setup, PIC remap, PIT init, exception handlers, GDT setup, keyboard IRQ |
-| `paging.h` | **new** | PMM, paging, heap declarations |
-| `paging.c` | **new** | PMM bitmap, identity paging, kmalloc/kfree |
-| `scheduler.h` | **new** | Task struct, scheduler declarations |
-| `scheduler.c` | **new** | Task creation, context switch, round-robin scheduler |
-| `syscall.h` | **new** | Syscall numbers and handler declaration |
-| `syscall.c` | **new** | SYS_PRINT, SYS_READ, SYS_EXIT, SYS_TICKS handlers |
+| Feature | Description |
+|---------|-------------|
+| Tetris | Full Tetris game — 7 pieces, rotation, line clearing, level progression |
+| clock | Live RTC clock display that updates in real-time |
+| free | Memory statistics showing PMM, tasks, files, users |
+| ping | Simulated network ping with 4-packet stats |
+| factor | Prime factorization of any integer |
+| hexdump | Hex + printable ASCII dump of any file |
+| du | Disk usage by file |
+| rev | Reverse file content |
+| shasum | DJB2 hash of file |
+| sysinfo | Quick system overview |
+| watch | Repeat any command at intervals |
 
 ## Verification
 
@@ -100,8 +95,11 @@ Run: `make run` (or `qemu-system-i386 -fda os.img -hda storage.img -boot order=a
 
 Test sequence:
 1. Login as `root` / `root`
-2. Try commands: `help`, `echo`, `date`, `cpuinfo`, `lspci`, `touch`, `write`, `cat`, `ls`, `uptime`
-3. Verify no crashes or panics from normal operation
+2. Try commands: `help`, `echo`, `date`, `cpuinfo`, `lspci`, `touch`, `write`, `cat`, `ls`, `uptime`, `free`, `sysinfo`
+3. Install games: `diese ayo add games` then play `tetris`, `snake`, `tictactoe`
+4. Test file ops: `touch test.txt`, `write test.txt hello`, `cat test.txt`, `wc test.txt`, `hexdump test.txt`, `du`, `rev test.txt`, `shasum test.txt`
+5. Test new utils: `clock`, `ping localhost`, `factor 12345`, `watch date`
+6. Verify no crashes or panics from normal operation
 
 ## TODO (Future Work)
 
@@ -113,5 +111,5 @@ Test sequence:
 6. Add `kmalloc` with slab allocation for better performance
 7. Implement demand paging (load pages on fault)
 8. Add user-space signal handling
-9. ELF loader for user programs
+9. ELF loader integration (loader exists but not wired to exec)
 10. SMP support (multi-core scheduling)
