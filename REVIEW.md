@@ -1,6 +1,6 @@
 # HexaOS — Kernel Infrastructure Review
 
-## Status: v6.0 "VFS Edition" — All core subsystems verified and enhanced
+## Status: v6.1 "VFS Edition" — Clock and Tetris fixed
 
 ### ✅ Boot cleanly
 - Stable bootloader (real mode → protected mode, floppy CHS load with bank switching)
@@ -13,6 +13,7 @@
 - PIT timer IRQ (IRQ0 → INT 0x20) at 100Hz, `system_ticks` counter
 - Keyboard IRQ (IRQ1 → INT 0x21) with ring buffer, scancode-to-ASCII mapping
 - **v6.0**: Arrow keys from IRQ keyboard now properly mapped for history navigation
+- **v6.1**: Clock command rewritten with direct VGA/serial output, Tetris rebuilt with uint16 bitmask shape data
 
 ### ✅ Memory baseline
 - Paging enabled (identity map first 8MB + dynamic page table allocation)
@@ -25,7 +26,7 @@
 - Clear separation: interrupts, memory, scheduler, syscalls, VFS, drivers, shell
 - Shared type definitions in `types.h`, I/O helpers in `types.h`
 
-### ✅ VFS (New in v6.0 — Fixed)
+### ✅ VFS (Fixed in v6.0)
 - **File read/write FIXED** — Previously returned spaces (read) or no-oped (write). Now properly reads/writes via f_table.
 - **vfs_stat() implemented** — Returns real file metadata (name, size, owner, mode, type)
 - FD management for files, pipes, console (stdin/stdout/stderr)
@@ -43,12 +44,14 @@
 - TSS with ring 0 stack for syscall/interrupt handling
 - Syscall mechanism via INT 0x80 (DPL=3 gate)
 - **v6.0**: 21 syscalls defined (SYS_PRINT through SYS_MUNMAP), 6 implemented
+- **v6.1**: Clock and Tetris commands fixed and working
 
 ### ✅ Persistence
 - ATA PIO block device driver (primary channel, LBA28)
 - Read/write sectors (proven working — file system loads/stores)
 - Storage persists via `storage.img` (QEMU virtual HDD)
 - **v6.0**: File content expanded from 512 to 2006 bytes (4 ATA sectors per file)
+- **v6.1**: Version bumped to 6.1, all docs and banners updated
 
 ### ✅ Control loop
 - Page faults are logged and recovered (system continues)
@@ -58,26 +61,23 @@
 
 ### ✅ Shell & Commands (90+)
 - **v6.0**: Added 12+ new commands: `clock`, `free`, `ping`, `factor`, `hexdump`, `du`, `rev`, `shasum`, `sysinfo`, `watch`, `tetris`
-- Games now include Tetris (full 10x20, 7 pieces, scoring, levels)
+- **v6.1**: `clock` rewritten (direct VGA+serial), `tetris` rebuilt with correct bitmask shape data
 - Fixed IRQ keyboard arrow key support for history navigation
 
-## Recent Changes (v6.0)
+## Recent Changes (v6.1)
 
 | Fix | Description |
 |-----|-------------|
-| VFS read | Was returning spaces instead of actual file content |
-| VFS write | Was returning count without writing anything |
-| VFS stat | Was returning -1; now returns real metadata |
-| Keyboard IRQ arrows | Arrow keys from IRQ now trigger history navigation |
-| File content | Expanded from 512 to 2006 bytes per file |
-| Syscalls | SYS_STAT and SYS_GETCWD handlers implemented |
+| Clock display | Rewritten — no more "all on one line" garbling; uses direct VGA buffer + serial \r |
+| Tetris game | Rebuilt with uint16 bitmask shape data — pieces now collide, rotate, lock properly |
+| Version bump | All banners, help strings, neofetch, login screen, uname updated to 6.1 |
 
-## New Features (v6.0)
+## New Features (v6.1)
 
 | Feature | Description |
 |---------|-------------|
-| Tetris | Full Tetris game — 7 pieces, rotation, line clearing, level progression |
-| clock | Live RTC clock display that updates in real-time |
+| Tetris (rebuilt v6.1) | Full Tetris game — bitmask shapes, correct collision/rotation/locking |
+| clock (fixed v6.1) | Live RTC clock display with working serial+VGA output |
 | free | Memory statistics showing PMM, tasks, files, users |
 | ping | Simulated network ping with 4-packet stats |
 | factor | Prime factorization of any integer |

@@ -1,21 +1,20 @@
-# HexaOS — Version 6.0 "VFS Edition"
+# HexaOS — Version 6.1 "VFS Edition"
 
-> **v6.0 is here!** Major upgrade with VFS bugfixes, expanded file storage, 20+ new commands, Tetris game, keyboard improvements, and new syscalls. The biggest feature release yet!
+> **v6.1 is here!** Clock display fixed for serial/VGA output and Tetris rebuilt with correct piece shape bitmasks. The biggest stability and gameplay fix release!
 
 A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a floppy disk image via QEMU.
 
-## What's New in v6.0
+## What's New in v6.1
 
 ### Critical Bugfixes
-- **VFS file read/write FIXED** — Previously `vfs_read` returned spaces and `vfs_write` was a no-op. Now both read/write actual file content through the proper file table. This is the biggest fix in v6.0.
-- **VFS `stat()` implemented** — The `stat` syscall now returns real file metadata instead of -1.
-- **Keyboard IRQ arrow keys fixed** — Arrow keys from the PS/2 IRQ keyboard now properly trigger history navigation in the shell.
+- **Clock command FIXED** — Rewritten to use direct VGA buffer writes and serial `\r`-based output instead of fragile cursor-position globals. No more "all on one line" garbling.
+- **Tetris REBUILT** — Shape data migrated from broken `[7][4][4]` array (accessed with `[y*4+x]` producing out-of-bounds reads) to correct `uint16_t[7][4]` bitmask representation. All 7 pieces now collide, rotate, and lock properly.
+- **Version bumped** from 6.0 to 6.1 across all banners, commands, and docs.
 
-### Expanded Storage
-- **File content enlarged 4x** — From 512 bytes to 2006 bytes per file (using 4 ATA sectors instead of 2).
-- **SYS_STAT and SYS_GETCWD syscalls** — New syscalls wired up for user program support.
+### What Carried Over from v6.0
+- VFS file read/write FIXED, `stat()` implemented, keyboard IRQ arrow keys fixed, file content enlarged 4x, SYS_STAT/SYS_GETCWD syscalls.
 
-### New Commands (20+ added, 90+ total)
+### Existing Commands (90+ total)
 ```
 clock     Live RTC clock display (updates in real-time)
 free      Memory statistics (PMM pages, tasks, files, users)
@@ -99,7 +98,7 @@ Pkg:      ayo list/add/remove/update
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                   HEXA OS 6.0                    │
+│                   HEXA OS 6.1                    │
 ├─────────────┬───────────┬────────────────────────┤
 │  Interrupts │  Memory   │   Process              │
 │  ┌───────┐  │ ┌──────┐  │  ┌────────┐            │
@@ -111,7 +110,7 @@ Pkg:      ayo list/add/remove/update
 ├─────────────┴───────────┴────────────────────────┤
 │  VFS:  Read/Write/Stat  ·  Pipes  ·  Console     │
 │  Syscall:  int 0x80  (21 syscalls, 6 active)     │
-│  Shell:  HEXA CLI v6.0  (90+ commands, aliases)  │
+│  Shell:  HEXA CLI v6.1  (90+ commands, aliases)  │
 │  Games:  Snake, TTT, Hangman, Memory, Tetris     │
 └──────────────────────────────────────────────────┘
 ```
@@ -185,15 +184,15 @@ Example: `ayo add games` enables Snake, Tic-Tac-Toe, Hangman, Memory, and Tetris
 
 ```
     __________________________
-   /   H E X A   O S   6.0   \
+   /   H E X A   O S   6.1   \
   |  VFS  ·  Tetris  ·  Pipe  |
   |  90+ Cmds  ·  ATA Storage |
   |  32-bit Protected Mode    |
    \________________________/
  ┌──────────────────────────────┐
- │  OS:       HEXA OS 6.0 i386  │
+ │  OS:       HEXA OS 6.1 i386  │
  │  Host:     hexaos            │
- │  Version:  6.0 "VFS Edition" │
+ │  Version:  6.1 "VFS Edition" │
  │  Kernel:   GenuineIntel      │
  │  Paging:   Enabled (4KB pg)  │
  │  IRQs:     PIC PIT@100Hz     │

@@ -476,7 +476,7 @@ int find_file(const char *name);
 static int execute_cmd(const char *cmd, char *args);
 
 void cmd_help() {
-  print_string("HEXA OS 6.0 Commands (90+)\n");
+  print_string("HEXA OS 6.1 Commands (90+)\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep\n");
   print_string("          hostname, uptime, true, false, shutdown\n");
@@ -849,29 +849,33 @@ void cmd_snake(void) {
   clear_screen();
 }
 
-// ----- TETRIS GAME -----
+// ----- TETRIS GAME (v6.1 - Fixed shape data) -----
 #define TET_TW 10
 #define TET_TH 20
-#define TET_TOX 25
+#define TET_TOX 30
 #define TET_TOY 1
 
-static const int tetris_shapes[7][4][4] = {
-  {{1,1,1,1},{0,0,0,0},{0,0,0,0},{0,0,0,0}},
-  {{1,1,0,0},{1,1,0,0},{0,0,0,0},{0,0,0,0}},
-  {{0,1,0,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}},
-  {{0,1,1,0},{1,1,0,0},{0,0,0,0},{0,0,0,0}},
-  {{1,1,0,0},{0,1,1,0},{0,0,0,0},{0,0,0,0}},
-  {{1,0,0,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}},
-  {{0,0,1,0},{1,1,1,0},{0,0,0,0},{0,0,0,0}}
+// Shape bitmasks: 16 bits per rotation, MSB row-major: bit(row*4 + col) = 1 means filled
+static const uint16_t tetris_shapes[7][4] = {
+  {0x0F00, 0x4444, 0x0F00, 0x4444}, // I
+  {0x0660, 0x0660, 0x0660, 0x0660}, // O
+  {0x04E0, 0x0464, 0x00E4, 0x04C4}, // T
+  {0x06C0, 0x08C4, 0x06C0, 0x08C4}, // S
+  {0x0C60, 0x04C8, 0x0C60, 0x04C8}, // Z
+  {0x08E0, 0x0644, 0x00E2, 0x044C}, // J
+  {0x02E0, 0x0446, 0x00E8, 0x0C44}, // L
 };
 static const int tetris_colors[7] = {0x0B, 0x0E, 0x0D, 0x0A, 0x0C, 0x09, 0x07};
 static int tet_board[TET_TH][TET_TW];
 static int tet_px, tet_py, tet_type, tet_rot, tet_score, tet_lines, tet_level, tet_go, tet_drop;
 
+#define TET_CELL(mask, y, x) (((mask) >> (15 - ((y)*4 + (x)))) & 1)
+
 static int tet_check_collision(int type, int rot, int bx, int by) {
+  uint16_t mask = tetris_shapes[type][rot & 3];
   for (int y = 0; y < 4; y++)
     for (int x = 0; x < 4; x++)
-      if (tetris_shapes[type][(rot) % 4][y * 4 + x]) {
+      if (TET_CELL(mask, y, x)) {
         int nx = bx + x, ny = by + y;
         if (nx < 0 || nx >= TET_TW || ny >= TET_TH) return 1;
         if (ny >= 0 && tet_board[ny][nx]) return 1;
@@ -880,9 +884,10 @@ static int tet_check_collision(int type, int rot, int bx, int by) {
 }
 
 static void tet_lock_piece(void) {
+  uint16_t mask = tetris_shapes[tet_type][tet_rot & 3];
   for (int y = 0; y < 4; y++)
     for (int x = 0; x < 4; x++)
-      if (tetris_shapes[tet_type][tet_rot % 4][y * 4 + x]) {
+      if (TET_CELL(mask, y, x)) {
         int bx = tet_px + x, by = tet_py + y;
         if (by >= 0 && by < TET_TH && bx >= 0 && bx < TET_TW)
           tet_board[by][bx] = tet_type + 1;
@@ -909,11 +914,12 @@ static int tet_clear_lines(void) {
 static void tet_new_piece(void) {
   tet_type = rand() % 7;
   tet_rot = 0;
-  tet_px = TET_TW / 2 - 2;
+  tet_px = (TET_TW - 4) / 2;
   tet_py = 0;
 }
 
 static void tet_draw_board(void) {
+  // Clear playfield area
   for (int y = 0; y < TET_TH; y++)
     for (int x = 0; x < TET_TW; x++) {
       int v = tet_board[y][x];
@@ -922,19 +928,22 @@ static void tet_draw_board(void) {
       else
         VGA_BUFFER[(TET_TOY + 1 + y) * 80 + TET_TOX + 1 + x] = (0x00 << 8) | ' ';
     }
+  // Draw current piece
+  uint16_t mask = tetris_shapes[tet_type][tet_rot & 3];
   for (int y = 0; y < 4; y++)
     for (int x = 0; x < 4; x++)
-      if (tetris_shapes[tet_type][tet_rot % 4][y * 4 + x]) {
+      if (TET_CELL(mask, y, x)) {
         int sy = tet_py + y, sx = tet_px + x;
         if (sy >= 0 && sy < TET_TH && sx >= 0 && sx < TET_TW)
           VGA_BUFFER[(TET_TOY + 1 + sy) * 80 + TET_TOX + 1 + sx] = (tetris_colors[tet_type] << 8) | '@';
       }
+  // Update sidebar
   char buf[16];
-  cursor_x = TET_TW + 4; cursor_y = 4;
+  cursor_x = TET_TW + 4; cursor_y = 3;
   print_string("Score: "); itoa(tet_score, buf, 10); print_string(buf); print_string("   ");
-  cursor_x = TET_TW + 4; cursor_y = 5;
+  cursor_x = TET_TW + 4; cursor_y = 4;
   print_string("Lines: "); itoa(tet_lines, buf, 10); print_string(buf); print_string("   ");
-  cursor_x = TET_TW + 4; cursor_y = 6;
+  cursor_x = TET_TW + 4; cursor_y = 5;
   print_string("Level: "); itoa(tet_level, buf, 10); print_string(buf); print_string("   ");
 }
 
@@ -955,12 +964,10 @@ void cmd_tetris(void) {
     VGA_BUFFER[(TET_TOY + y) * 80 + TET_TOX] = 0x0F << 8 | '#';
     VGA_BUFFER[(TET_TOY + y) * 80 + TET_TOX + TET_TW + 1] = 0x0F << 8 | '#';
   }
-  cursor_x = TET_TW + 6; cursor_y = 2;
+  cursor_x = 40; cursor_y = 0;
   print_string("TETRIS");
-  cursor_x = TET_TW + 4; cursor_y = 8;
-  print_string("WASD: Move/Rot");
-  cursor_x = TET_TW + 4; cursor_y = 9;
-  print_string("Q: Quit");
+  cursor_x = 0; cursor_y = 22;
+  print_string("A:Left D:Right W:Rotate S:Drop Q:Quit");
   tet_new_piece();
   while (!tet_go) {
     do_tick(); tet_drop++;
@@ -968,11 +975,12 @@ void cmd_tetris(void) {
       char c = getch_nb();
       if (c == 'a' || c == 'A') { if (!tet_check_collision(tet_type, tet_rot, tet_px - 1, tet_py)) tet_px--; }
       else if (c == 'd' || c == 'D') { if (!tet_check_collision(tet_type, tet_rot, tet_px + 1, tet_py)) tet_px++; }
-      else if (c == 'w' || c == 'W') { int nr = (tet_rot + 1) % 4; if (!tet_check_collision(tet_type, nr, tet_px, tet_py)) tet_rot = nr; }
+      else if (c == 'w' || c == 'W') { int nr = (tet_rot + 1) & 3; if (!tet_check_collision(tet_type, nr, tet_px, tet_py)) tet_rot = nr; }
       else if (c == 's' || c == 'S') { if (!tet_check_collision(tet_type, tet_rot, tet_px, tet_py + 1)) { tet_py++; tet_drop = 0; } }
       else if (c == 'q' || c == 'Q') { tet_go = 1; break; }
     }
-    int ds = 15 - tet_level; if (ds < 2) ds = 2;
+    int ds = 20 - tet_level * 2;
+    if (ds < 3) ds = 3;
     if (tet_drop >= ds) {
       tet_drop = 0;
       if (!tet_check_collision(tet_type, tet_rot, tet_px, tet_py + 1)) {
@@ -1219,17 +1227,17 @@ void cmd_neofetch(void) {
   char buf[16];
   clear_screen();
   print_color("    __________________________\n", 0x0B);
-  print_color("   /   H E X A   O S   6.0   \\\n", 0x0B);
+  print_color("   /   H E X A   O S   6.1   \\\n", 0x0B);
   print_color("  |  VFS  ·  Tetris  ·  Pipe  |\n", 0x0B);
   print_color("  |  90+ Cmds  ·  ATA Storage |\n", 0x0B);
   print_color("  |  32-bit Protected Mode    |\n", 0x0B);
   print_color("   \\________________________/\n", 0x0B);
   print_string(" ┌──────────────────────────────┐\n");
-  print_string(" │  OS:       "); print_color("HEXA OS 6.0 i386", 0x0A); print_string("         │\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 6.1 i386", 0x0A); print_string("         │\n");
   print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
   for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
   print_string("│\n");
-  print_string(" │  Version:  "); print_color("6.0 \"VFS Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Version:  "); print_color("6.1 \"VFS Edition\"", 0x0E); print_string("    │\n");
   print_string(" │  Kernel:   "); print_color(v, 0x0A); 
   for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
   print_string("│\n");
@@ -1299,7 +1307,7 @@ void cmd_neofetch(void) {
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
   print_string("       │\n");
   // Commands / features
-  print_string(" │  Shell:   HEXA CLI v6.0  80x25  │\n");
+  print_string(" │  Shell:   HEXA CLI v6.1  80x25  │\n");
   print_string(" │  Cache:   ");
   print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
   print_string("   │\n");
@@ -1337,8 +1345,8 @@ void do_login(void) {
   print_color(
     "╭──────────────────────────────╮\n"
     "│         H E X A   O S        │\n"
-    "│        Version 6.0           │\n"
-    "│   VFS · Tetris · 90+ Cmds   │\n"
+    "│        Version 6.1           │\n"
+    "│   VFS · Tetris · 90+ Cmds    │\n"
     "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
     get_line(name, NAME_MAX);
@@ -2260,7 +2268,7 @@ void cmd_logo(void) {
   print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
   print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
   print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
-  print_color("  ║         6.0  VFS EDITION         ║\n", 0x0E);
+  print_color("  ║         6.1  VFS EDITION         ║\n", 0x0E);
   print_color("  ║                                  ║\n", 0x0A);
   print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
   print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
@@ -2393,13 +2401,14 @@ void cmd_bsod(void) {
   clear_screen();
 }
 
-// ---- Powerful New Commands v6.0 ----
+// ---- Powerful New Commands v6.1 ----
 void cmd_clock(void) {
   clear_screen();
-  print_string("HEXA OS Live Clock - Press any key to exit\n");
-  print_string("==========================================\n");
+  cursor_x = 0; cursor_y = 0;
+  print_string("HEXA OS Live Clock - Press Q to exit\n");
+  print_string("====================================\n");
   while (1) {
-    if (kb_hit()) { get_char(0); break; }
+    if (kb_hit()) { char c = getch_nb(); if (c == 'q' || c == 'Q') break; }
     while (get_update_in_progress_flag());
     uint8_t s = get_rtc_register(0x00);
     uint8_t m = get_rtc_register(0x02);
@@ -2416,10 +2425,13 @@ void cmd_clock(void) {
       mo = (mo & 0x0F) + ((mo / 16) * 10);
       y = (y & 0x0F) + ((y / 16) * 10);
     }
+    // Clear display area (lines 3-5) on VGA
+    for (int i = 0; i < 3 * 80; i++)
+      VGA_BUFFER[(3 * 80) + i] = (0x0F << 8) | ' ';
+    // Write formatted time to VGA line 3
+    cursor_x = 0; cursor_y = 3;
     char buf[16];
-    // Write time at cursor position (line 2)
-    int old_x = cursor_x, old_y = cursor_y;
-    cursor_x = 10; cursor_y = 2;
+    print_string("Current Time: ");
     print_string("20"); itoa(y, buf, 10); print_string(buf);
     print_string("-"); if (mo < 10) put_char('0', 0x0F);
     itoa(mo, buf, 10); print_string(buf);
@@ -2432,11 +2444,13 @@ void cmd_clock(void) {
     itoa(m, buf, 10); print_string(buf);
     print_string(":"); if (s < 10) put_char('0', 0x0F);
     itoa(s, buf, 10); print_string(buf);
-    // Show ticks
-    cursor_x = 10; cursor_y = 3;
-    print_string("Uptime: "); itoa(system_ticks / 100, buf, 10); print_string(buf); print_string("s");
-    cursor_x = old_x; cursor_y = old_y;
-    for (volatile int d = 0; d < 30000; d++);
+    // Uptime on line 4
+    cursor_x = 0; cursor_y = 4;
+    print_string("Uptime: "); itoa(system_ticks / 100, buf, 10); print_string(buf); print_string(" seconds");
+    // Serial-friendly output with carriage return
+    cursor_x = 0; cursor_y = 5;
+    print_string("Press Q to quit");
+    for (volatile int d = 0; d < 50000; d++);
   }
   clear_screen();
 }
@@ -2644,7 +2658,7 @@ void cmd_watch(const char *args) {
 
 void cmd_sysinfo(void) {
   char buf[16];
-  print_color("HEXA OS v6.0 - Quick System Info\n", 0x0B);
+  print_color("HEXA OS v6.1 - Quick System Info\n", 0x0B);
   print_string("================================\n");
   cmd_cpuinfo();
   print_string("Memory: "); itoa(pmm_count_free() * 4, buf, 10); print_string(buf); print_string(" KB free\n");
@@ -3154,7 +3168,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.0 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.1 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "touch") == 0) { cmd_touch(args); save_data(); return 1; }
   if (strcmp(cmd, "ls") == 0) { cmd_ls(); return 1; }
