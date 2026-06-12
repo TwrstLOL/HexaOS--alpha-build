@@ -476,7 +476,7 @@ int find_file(const char *name);
 static int execute_cmd(const char *cmd, char *args);
 
 void cmd_help() {
-  print_string("HEXA OS 6.1 Commands (90+)\n");
+  print_string("HEXA OS 6.2 Commands (90+)\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep\n");
   print_string("          hostname, uptime, true, false, shutdown\n");
@@ -721,29 +721,115 @@ void cmd_guess() {
 }
 
 void cmd_panic(void) {
-  print_color("*** KERNEL PANIC ***\n\n", 0x4F);
-  const char *err[] = {
-    "FATAL: Page fault at 0xDEADBEEF",
-    "IRQ conflict on vector 13",
-    "Stack overflow in process 0",
-    "NULL pointer dereference",
-    "Invalid opcode at EIP=0xCAFEBABE",
-    "Segment not present in GDT",
-    "Double fault: unrecoverable",
-    "System timer failed to tick",
-    "Memory corruption detected",
-    "CPU exception: general protection",
-    "Unhandled interrupt 0xE",
-    "Kernel stack corrupted",
-  };
-  for (int i = 0; i < 30; i++) {
-    print_color(err[i % 12], 0x4C);
-    print_color(" -- SYSTEM HALTED\n", 0x4F);
-    for (volatile int d = 0; d < 8000; d++);
-    if ((inb(0x64) & 1)) { get_char(0); break; }
+  if (u_cur != 0) { print_color("Root only.\n", 0x0C); print_string("Use: diese panic\n"); return; }
+  clear_screen();
+  for (int i = 0; i < 25; i++) {
+    for (int j = 0; j < 80; j++)
+      VGA_BUFFER[i * 80 + j] = (0x1F << 8) | ' ';
   }
-  print_color("\nShutting down...\n", 0x4C);
-  for (volatile int d = 0; d < 50000; d++);
+  cursor_x = 0; cursor_y = 0;
+  print_color("*** KERNEL PANIC ***\n", 0xCF);
+  print_color("====================\n\n", 0xCF);
+  print_color("A fatal exception has occurred. The system will halt.\n\n", 0xCF);
+  // Stage 1: Register dump
+  print_color("[STAGE 1/5] Dumping CPU registers...\n", 0xCE);
+  for (volatile int d = 0; d < 15000; d++);
+  char buf[16];
+  print_color("  EAX=0x", 0x4F); itoa(0xDEADBEEF, buf, 16); print_color(buf, 0x4F);
+  print_color("  EBX=0x", 0x4F); itoa(0xCAFEBABE, buf, 16); print_color(buf, 0x4F);
+  print_color("  ECX=0x", 0x4F); itoa(0x600DF00D, buf, 16); print_color(buf, 0x4F);
+  print_color("  EDX=0x", 0x4F); itoa(0xBAADF00D, buf, 16); print_color(buf, 0x4F);
+  print_color("\n  ESI=0x", 0x4F); itoa(0xFEEDFACE, buf, 16); print_color(buf, 0x4F);
+  print_color("  EDI=0x", 0x4F); itoa(0xDEADC0DE, buf, 16); print_color(buf, 0x4F);
+  print_color("  EBP=0x", 0x4F); itoa(0x8BADF00D, buf, 16); print_color(buf, 0x4F);
+  print_color("  ESP=0x", 0x4F); itoa(0x0000BEEF, buf, 16); print_color(buf, 0x4F);
+  print_color("\n  EIP=0x", 0x4F); itoa(0xC0FFEEEE, buf, 16); print_color(buf, 0x4F);
+  print_color("  CS=0x08  DS=0x10  SS=0x18  FLAGS=0x", 0x4F);
+  itoa(0x00010246, buf, 16); print_color(buf, 0x4F);
+  print_color("\n\n", 0x4F);
+  for (volatile int d = 0; d < 20000; d++);
+  // Stage 2: Stack trace
+  print_color("[STAGE 2/5] Generating stack trace...\n", 0xCE);
+  for (volatile int d = 0; d < 15000; d++);
+  const char *stack_msgs[] = {
+    "  [0xDEADBEEF] panic()+0x3F",
+    "  [0xCAFEBABE] syscall_handler()+0x12",
+    "  [0x600DF00D] do_tick()+0x87",
+    "  [0xBAADF00D] keyboard_irq()+0x2B",
+    "  [0xFEEDFACE] scheduler()+0x45",
+    "  [0xDEADC0DE] switch_task()+0x19",
+    "  [0x8BADF00D] timer_callback()+0x0E",
+    "  [0xC0FFEEEE] interrupt_dispatch()+0x5A",
+    "  [0x0000BEEF] main()+0xFF",
+    "  [0x00010246] _start()+0x03",
+  };
+  for (int i = 0; i < 10; i++) {
+    print_color(stack_msgs[i], 0x4F);
+    print_color("\n", 0x4F);
+    for (volatile int d = 0; d < 5000; d++);
+  }
+  // Stage 3: Memory map
+  print_color("\n[STAGE 3/5] Dumping memory map...\n", 0xCE);
+  for (volatile int d = 0; d < 15000; d++);
+  print_color("  Physical memory: 32 MB total\n", 0x4F);
+  print_color("  Used pages: ", 0x4F); itoa(pmm_count_free(), buf, 10); print_color(buf, 0x4F);
+  print_color("/", 0x4F); itoa(pmm_get_total_pages(), buf, 10); print_color(buf, 0x4F);
+  print_color("\n  Kernel heap: 0x800000 - 0x900000\n", 0x4F);
+  print_color("  Stack canary: 0xDEADBEEF (", 0x4F);
+  print_color("CORRUPTED", 0x4C);
+  print_color(")\n", 0x4F);
+  for (volatile int d = 0; d < 20000; d++);
+  // Stage 4: Scan filesystem
+  print_color("\n[STAGE 4/5] Scanning filesystem for corruption...\n", 0xCE);
+  for (volatile int d = 0; d < 15000; d++);
+  const char *scan[] = {
+    "  [OK]  Boot sector: intact",
+    "  [OK]  Kernel image: checksum valid",
+    "  [!!]  f_table[3]: invalid inode",
+    "  [!!]  Block 0x47: CRC mismatch",
+    "  [OK]  Page directory: intact",
+    "  [!!]  GDT entry 5: segment limit exceeded",
+    "  [OK]  IDT entries: all valid",
+    "  [!!]  TSS: stale selector",
+    "  [OK]  ATA controller: responding",
+    "  [OK]  PIC: cascaded correctly",
+  };
+  for (int i = 0; i < 10; i++) {
+    if (scan[i][4] == 'O')
+      print_color(scan[i], 0x0A);
+    else
+      print_color(scan[i], 0x4C);
+    print_color("\n", 0x4F);
+    for (volatile int d = 0; d < 6000; d++);
+  }
+  // Stage 5: Critical error
+  print_color("\n[STAGE 5/5] Fatal: kernel panic initiated\n", 0xCE);
+  for (volatile int d = 0; d < 15000; d++);
+  print_color("\n  >> Press any key to attempt recovery, or wait for shutdown <<\n", 0xCF);
+  for (volatile int d = 0; d < 10000; d++);
+  if ((inb(0x64) & 1)) {
+    get_char(0);
+    print_color("\nRecovery attempted. System may be unstable.\n", 0x0E);
+    print_color("Press any key to continue...\n", 0x0E);
+    get_char(0);
+    clear_screen();
+    return;
+  }
+  // Dramatic countdown
+  print_color("\nShutting down in ", 0xCF);
+  for (int i = 5; i > 0; i--) {
+    itoa(i, buf, 10); print_color(buf, 0xCF);
+    print_color("... ", 0xCF);
+    for (volatile int d = 0; d < 30000; d++);
+  }
+  print_color("NOW.\n\n", 0x4F);
+  for (volatile int d = 0; d < 20000; d++);
+  // Final screen flash
+  for (int i = 0; i < 25; i++) {
+    for (int j = 0; j < 80; j++)
+      VGA_BUFFER[i * 80 + j] = (0x40 << 8) | ' ';
+  }
+  for (volatile int d = 0; d < 30000; d++);
   __asm__ volatile("cli; hlt");
 }
 
@@ -849,7 +935,7 @@ void cmd_snake(void) {
   clear_screen();
 }
 
-// ----- TETRIS GAME (v6.1 - Fixed shape data) -----
+// ----- TETRIS GAME -----
 #define TET_TW 10
 #define TET_TH 20
 #define TET_TOX 30
@@ -1227,17 +1313,17 @@ void cmd_neofetch(void) {
   char buf[16];
   clear_screen();
   print_color("    __________________________\n", 0x0B);
-  print_color("   /   H E X A   O S   6.1   \\\n", 0x0B);
+  print_color("   /   H E X A   O S   6.2   \\\n", 0x0B);
   print_color("  |  VFS  ·  Tetris  ·  Pipe  |\n", 0x0B);
   print_color("  |  90+ Cmds  ·  ATA Storage |\n", 0x0B);
   print_color("  |  32-bit Protected Mode    |\n", 0x0B);
   print_color("   \\________________________/\n", 0x0B);
   print_string(" ┌──────────────────────────────┐\n");
-  print_string(" │  OS:       "); print_color("HEXA OS 6.1 i386", 0x0A); print_string("         │\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 6.2 i386", 0x0A); print_string("         │\n");
   print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
   for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
   print_string("│\n");
-  print_string(" │  Version:  "); print_color("6.1 \"VFS Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Version:  "); print_color("6.2 \"VFS Edition\"", 0x0E); print_string("    │\n");
   print_string(" │  Kernel:   "); print_color(v, 0x0A); 
   for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
   print_string("│\n");
@@ -1307,7 +1393,7 @@ void cmd_neofetch(void) {
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
   print_string("       │\n");
   // Commands / features
-  print_string(" │  Shell:   HEXA CLI v6.1  80x25  │\n");
+  print_string(" │  Shell:   HEXA CLI v6.2  80x25  │\n");
   print_string(" │  Cache:   ");
   print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
   print_string("   │\n");
@@ -1345,7 +1431,7 @@ void do_login(void) {
   print_color(
     "╭──────────────────────────────╮\n"
     "│         H E X A   O S        │\n"
-    "│        Version 6.1           │\n"
+    "│        Version 6.2           │\n"
     "│   VFS · Tetris · 90+ Cmds    │\n"
     "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
@@ -2268,7 +2354,7 @@ void cmd_logo(void) {
   print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
   print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
   print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
-  print_color("  ║         6.1  VFS EDITION         ║\n", 0x0E);
+  print_color("  ║         6.2  VFS EDITION         ║\n", 0x0E);
   print_color("  ║                                  ║\n", 0x0A);
   print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
   print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
@@ -2401,7 +2487,7 @@ void cmd_bsod(void) {
   clear_screen();
 }
 
-// ---- Powerful New Commands v6.1 ----
+// ---- Powerful New Commands v6.2 ----
 void cmd_clock(void) {
   clear_screen();
   cursor_x = 0; cursor_y = 0;
@@ -2658,7 +2744,7 @@ void cmd_watch(const char *args) {
 
 void cmd_sysinfo(void) {
   char buf[16];
-  print_color("HEXA OS v6.1 - Quick System Info\n", 0x0B);
+  print_color("HEXA OS v6.2 - Quick System Info\n", 0x0B);
   print_string("================================\n");
   cmd_cpuinfo();
   print_string("Memory: "); itoa(pmm_count_free() * 4, buf, 10); print_string(buf); print_string(" KB free\n");
@@ -3168,7 +3254,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.1 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.2 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "touch") == 0) { cmd_touch(args); save_data(); return 1; }
   if (strcmp(cmd, "ls") == 0) { cmd_ls(); return 1; }

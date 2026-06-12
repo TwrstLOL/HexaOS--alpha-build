@@ -1,18 +1,20 @@
-# HexaOS — Version 6.1 "VFS Edition"
+# HexaOS — Version 6.2 "VFS Edition"
 
-> **v6.1 is here!** Clock display fixed for serial/VGA output and Tetris rebuilt with correct piece shape bitmasks. The biggest stability and gameplay fix release!
+> **v6.2 is here!** `panic` command overhauled with 5-stage simulated crash sequence, register dump, stack trace, filesystem scan, and dramatic shutdown. Requires root (via `diese`).
 
 A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a floppy disk image via QEMU.
 
-## What's New in v6.1
+## What's New in v6.2
 
-### Critical Bugfixes
-- **Clock command FIXED** — Rewritten to use direct VGA buffer writes and serial `\r`-based output instead of fragile cursor-position globals. No more "all on one line" garbling.
-- **Tetris REBUILT** — Shape data migrated from broken `[7][4][4]` array (accessed with `[y*4+x]` producing out-of-bounds reads) to correct `uint16_t[7][4]` bitmask representation. All 7 pieces now collide, rotate, and lock properly.
-- **Version bumped** from 6.0 to 6.1 across all banners, commands, and docs.
-
-### What Carried Over from v6.0
-- VFS file read/write FIXED, `stat()` implemented, keyboard IRQ arrow keys fixed, file content enlarged 4x, SYS_STAT/SYS_GETCWD syscalls.
+### Changes
+- **`panic` command overhauled** — Now a full 5-stage simulated kernel panic:
+  1. CPU register dump (EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP, EIP, segment registers, flags)
+  2. Stack trace with 10 simulated frames
+  3. Memory map showing physical memory, used pages, heap, corrupt stack canary
+  4. Filesystem scan with mixed OK/FAIL results
+  5. Critical error with optional recovery prompt or 5-second shutdown countdown
+- **Root required** — `panic` now demands root (`diese panic`).
+- **Version bumped** from 6.1 to 6.2 across all banners, commands, and docs.
 
 ### Existing Commands (90+ total)
 ```
@@ -98,7 +100,7 @@ Pkg:      ayo list/add/remove/update
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                   HEXA OS 6.1                    │
+│                   HEXA OS 6.2                    │
 ├─────────────┬───────────┬────────────────────────┤
 │  Interrupts │  Memory   │   Process              │
 │  ┌───────┐  │ ┌──────┐  │  ┌────────┐            │
@@ -110,7 +112,7 @@ Pkg:      ayo list/add/remove/update
 ├─────────────┴───────────┴────────────────────────┤
 │  VFS:  Read/Write/Stat  ·  Pipes  ·  Console     │
 │  Syscall:  int 0x80  (21 syscalls, 6 active)     │
-│  Shell:  HEXA CLI v6.1  (90+ commands, aliases)  │
+│  Shell:  HEXA CLI v6.2  (90+ commands, aliases)  │
 │  Games:  Snake, TTT, Hangman, Memory, Tetris     │
 └──────────────────────────────────────────────────┘
 ```
@@ -184,15 +186,15 @@ Example: `ayo add games` enables Snake, Tic-Tac-Toe, Hangman, Memory, and Tetris
 
 ```
     __________________________
-   /   H E X A   O S   6.1   \
+   /   H E X A   O S   6.2   \
   |  VFS  ·  Tetris  ·  Pipe  |
   |  90+ Cmds  ·  ATA Storage |
   |  32-bit Protected Mode    |
    \________________________/
  ┌──────────────────────────────┐
- │  OS:       HEXA OS 6.1 i386  │
+ │  OS:       HEXA OS 6.2 i386  │
  │  Host:     hexaos            │
- │  Version:  6.1 "VFS Edition" │
+ │  Version:  6.2 "VFS Edition" │
  │  Kernel:   GenuineIntel      │
  │  Paging:   Enabled (4KB pg)  │
  │  IRQs:     PIC PIT@100Hz     │

@@ -1,6 +1,6 @@
 # HexaOS — Kernel Infrastructure Review
 
-## Status: v6.1 "VFS Edition" — Clock and Tetris fixed
+## Status: v6.2 "VFS Edition" — Panic overhauled, 5-stage crash sim
 
 ### ✅ Boot cleanly
 - Stable bootloader (real mode → protected mode, floppy CHS load with bank switching)
@@ -14,6 +14,7 @@
 - Keyboard IRQ (IRQ1 → INT 0x21) with ring buffer, scancode-to-ASCII mapping
 - **v6.0**: Arrow keys from IRQ keyboard now properly mapped for history navigation
 - **v6.1**: Clock command rewritten with direct VGA/serial output, Tetris rebuilt with uint16 bitmask shape data
+- **v6.2**: `panic` command overhauled with 5-stage simulated crash, root required
 
 ### ✅ Memory baseline
 - Paging enabled (identity map first 8MB + dynamic page table allocation)
@@ -45,6 +46,7 @@
 - Syscall mechanism via INT 0x80 (DPL=3 gate)
 - **v6.0**: 21 syscalls defined (SYS_PRINT through SYS_MUNMAP), 6 implemented
 - **v6.1**: Clock and Tetris commands fixed and working
+- **v6.2**: `panic` command rewritten: register dump, stack trace, memory scan, filesystem check, recovery prompt, countdown shutdown
 
 ### ✅ Persistence
 - ATA PIO block device driver (primary channel, LBA28)
@@ -52,6 +54,7 @@
 - Storage persists via `storage.img` (QEMU virtual HDD)
 - **v6.0**: File content expanded from 512 to 2006 bytes (4 ATA sectors per file)
 - **v6.1**: Version bumped to 6.1, all docs and banners updated
+- **v6.2**: Version bumped to 6.2, panic command rewritten
 
 ### ✅ Control loop
 - Page faults are logged and recovered (system continues)
@@ -62,20 +65,22 @@
 ### ✅ Shell & Commands (90+)
 - **v6.0**: Added 12+ new commands: `clock`, `free`, `ping`, `factor`, `hexdump`, `du`, `rev`, `shasum`, `sysinfo`, `watch`, `tetris`
 - **v6.1**: `clock` rewritten (direct VGA+serial), `tetris` rebuilt with correct bitmask shape data
+- **v6.2**: `panic` overhauled — 5 stages, register dump, stack trace, memory map, filesystem scan, recovery/countdown
 - Fixed IRQ keyboard arrow key support for history navigation
 
-## Recent Changes (v6.1)
+## Recent Changes (v6.2)
 
 | Fix | Description |
 |-----|-------------|
-| Clock display | Rewritten — no more "all on one line" garbling; uses direct VGA buffer + serial \r |
-| Tetris game | Rebuilt with uint16 bitmask shape data — pieces now collide, rotate, lock properly |
-| Version bump | All banners, help strings, neofetch, login screen, uname updated to 6.1 |
+| Panic command | Overhauled — 5 stages: reg dump, stack trace, memory map, FS scan, shutdown countdown |
+| Root check | `panic` now requires root (`diese panic`) |
+| Version bump | All banners, help strings, neofetch, login screen, uname updated to 6.2 |
 
-## New Features (v6.1)
+## New Features (v6.2)
 
 | Feature | Description |
 |---------|-------------|
+| panic (overhauled v6.2) | 5-stage simulated kernel crash — regs, stack, mem, FS scan, shutdown |
 | Tetris (rebuilt v6.1) | Full Tetris game — bitmask shapes, correct collision/rotation/locking |
 | clock (fixed v6.1) | Live RTC clock display with working serial+VGA output |
 | free | Memory statistics showing PMM, tasks, files, users |
