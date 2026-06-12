@@ -1,13 +1,27 @@
-# HexaOS — Version 6.2 "VFS Edition"
+# HexaOS — Version 6.3 "VFS Edition"
 
-> **v6.2 is here!** `panic` command overhauled with 5-stage simulated crash sequence, register dump, stack trace, filesystem scan, and dramatic shutdown. Requires root (via `diese`).
+> **v6.3 is here!** Password hashing hardened (16-bit salt, 5 iterations, migration from old format), write-ahead journal (atomic file table saves), block-based filesystem (dynamic kmalloc content + block-chain disk storage), RTL8139 NIC driver with real ICMP ping, and ELF binary execution (`exec` command). Requires root (via `diese`).
 
 A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a floppy disk image via QEMU.
 
-## What's New in v6.2
+## What's New in v6.3
 
 ### Changes
-- **`panic` command overhauled** — Now a full 5-stage simulated kernel panic:
+- **Version bump** — 6.2 → 6.3 "VFS Edition"
+- ALL banners, help strings, neofetch, login screen, uname updated
+
+### Features
+
+- **Password hashing hardened** — `pwd_hash()` now takes a `uint32_t salt` and `int iters` parameter. Storage format changed from `"SS HHHHHHHH"` (old, 2-hex salt, 1 iteration) to `"SSSS+IHHHHHHHH"` (4-hex salt, `'+'`, 1-hex iterations, hash). Old passwords are auto-migrated on successful login or `diese`.
+- **Write-ahead journal** — A journal sector at LBA 99 with magic `"JRNL"` and state tracking (`SAVING`/`CLEAN`). If power is lost during a save, the disk is marked offline on next boot to prevent silent corruption.
+- **Block-based filesystem** — File content is now dynamically allocated via `kmalloc` (no more 2006-byte fixed buffer). Disk storage is a block chain at LBA 102+. File sizes stored in the sector header. Storage image expanded from 256 to 4096 sectors (2 MB).
+- **RTL8139 NIC driver** — PCI probe (vendor 0x10EC / device 0x8139), chip reset, 8 KB RX ring, TX via TSAD0. Interrupt support wired. Detects MAC from IDR registers.
+- **Real `ping` command** — Builds Ethernet+IP+ICMP echo-request frames, sends via RTL8139, polls for echo-reply with timing. Dotted-decimal IP parsing (e.g. `ping 10.0.2.2`). Works with QEMU's `-netdev user` (guest IP 10.0.2.15, gateway 10.0.2.2).
+- **`exec` command** — Loads an ELF binary from the filesystem, sets up a user page directory, maps PT_LOAD segments, and spawns a new scheduler task. ELF loader integration wired up.
+
+---
+
+
   1. CPU register dump (EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP, EIP, segment registers, flags)
   2. Stack trace with 10 simulated frames
   3. Memory map showing physical memory, used pages, heap, corrupt stack canary

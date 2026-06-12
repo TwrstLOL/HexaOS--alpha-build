@@ -21,11 +21,11 @@ static uint8_t current_color = 0x0F; // White on black
 #define MAX_USERS 12
 #define MAX_FILES 64
 #define NAME_MAX 32
-#define CONTENT_MAX 2006
+#define CONTENT_MAX 65528
 
 // Forward declarations for password hash functions
-static uint32_t pwd_hash(const char *str, uint8_t salt);
-static void encode_pwd(char out[NAME_MAX], const char *pass, uint8_t salt);
+static uint32_t pwd_hash(const char *str, uint32_t salt, int iters);
+static void encode_pwd(char out[NAME_MAX], const char *pass, uint32_t salt);
 static int check_pwd(const char *pass, const char *encoded);
 
 static struct {
@@ -49,15 +49,36 @@ static int u_cur = 0;
 #define PERM_OTH_X   0x001
 #define PERM_DEFAULT 0x1A4  // owner rw-, grp r--, oth r--
 
+int file_ensure_cap(int idx, int needed);
+
 struct {
   char name[NAME_MAX];
-  char content[CONTENT_MAX];
+  char *content;
   int size;
+  int cap;
   int owner;
   uint16_t mode;
 } f_table[MAX_FILES];
 int f_count = 0;
 int disk_ok = 0;
+
+void *memcpy(void *dest, const void *src, size_t len);
+void *memset(void *dest, int c, size_t len);
+
+// Ensure file's content buffer can hold 'needed' bytes (grow if needed)
+int file_ensure_cap(int idx, int needed) {
+  if (needed <= f_table[idx].cap) return 1;
+  int newcap = needed + 1024;
+  char *new = kmalloc(newcap);
+  if (!new) return 0;
+  if (f_table[idx].content) {
+    memcpy(new, f_table[idx].content, f_table[idx].size);
+    kfree(f_table[idx].content);
+  }
+  f_table[idx].content = new;
+  f_table[idx].cap = newcap;
+  return 1;
+}
 
 // ----------------- String Library -----------------
 int strcmp(const char *s1, const char *s2) {
@@ -151,48 +172,60 @@ void itoa(int num, char *str, int base) {
   }
 }
 
-// ----------------- Password Hashing -----------------
-static uint32_t pwd_hash(const char *str, uint8_t salt) {
+// ----------------- Password Hashing (v6.3 - 16-bit salt + iterations) -----------------
+static uint32_t pwd_hash(const char *str, uint32_t salt, int iters) {
   uint32_t h = 5381 + salt;
   int c;
   while ((c = *str++))
     h = ((h << 5) + h) + (unsigned char)c;
+  for (int i = 1; i < iters; i++)
+    h = ((h << 5) + h) + (h >> 16) + (h & 0xFF);
   return h;
 }
 
-static void encode_pwd(char out[NAME_MAX], const char *pass, uint8_t salt) {
+static int hex_val(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return 0;
+}
+
+static void encode_pwd(char out[NAME_MAX], const char *pass, uint32_t salt) {
   char tmp[16];
-  out[0] = '0'; out[1] = '0'; out[2] = ' ';
+  int iters = 5;
+  // Format: "SSSS+IHHHHHHHH" — 4-hex salt, '+', 1-hex iters, hash
+  uint32_t h = pwd_hash(pass, salt, iters);
   itoa(salt, tmp, 16);
   int sl = strlen(tmp);
-  out[0] = '0'; out[1] = '0';
-  for (int i = 0; i < sl && i < 2; i++)
-    out[1 - i] = tmp[sl - 1 - i];
-  out[2] = ' ';
-  uint32_t h = pwd_hash(pass, salt);
+  out[0] = '0'; out[1] = '0'; out[2] = '0'; out[3] = '0';
+  for (int i = 0; i < sl && i < 4; i++)
+    out[3 - i] = tmp[sl - 1 - i];
+  out[4] = '+';
+  out[5] = "0123456789ABCDEF"[iters & 0xF];
   itoa(h, tmp, 16);
-  strcpy(out + 3, tmp);
+  strcpy(out + 6, tmp);
 }
 
 static int check_pwd(const char *pass, const char *encoded) {
-  uint8_t salt = 0;
-  for (int i = 0; i < 2; i++) {
-    char c = encoded[i];
-    if (c >= '0' && c <= '9') salt = salt * 16 + (c - '0');
-    else if (c >= 'a' && c <= 'f') salt = salt * 16 + (c - 'a' + 10);
-    else if (c >= 'A' && c <= 'F') salt = salt * 16 + (c - 'A' + 10);
+  if (encoded[4] == '+') {
+    // New format: "SSSS+IHHHHHHHH"
+    uint32_t salt = 0;
+    for (int i = 0; i < 4; i++) salt = salt * 16 + hex_val(encoded[i]);
+    int iters = hex_val(encoded[5]);
+    uint32_t sh = 0;
+    const char *hp = encoded + 6;
+    while (*hp) { sh = sh * 16 + hex_val(*hp); hp++; }
+    return pwd_hash(pass, salt, iters) == sh;
   }
-  const char *hp = encoded + 3;
+  // Old format (v6.3-): "SS HHHHHHHH" — 2-hex salt, space, 1-iteration hash
+  // Check for space at pos 2 as old format marker, bail on garbage
+  if (encoded[2] != ' ') return 0;
+  uint32_t salt = 0;
+  for (int i = 0; i < 2; i++) salt = salt * 16 + hex_val(encoded[i]);
   uint32_t sh = 0;
-  while (*hp) {
-    char c = *hp;
-    if (c >= '0' && c <= '9') sh = sh * 16 + (c - '0');
-    else if (c >= 'a' && c <= 'f') sh = sh * 16 + (c - 'a' + 10);
-    else if (c >= 'A' && c <= 'F') sh = sh * 16 + (c - 'A' + 10);
-    else break;
-    hp++;
-  }
-  return pwd_hash(pass, salt) == sh;
+  const char *hp = encoded + 3;
+  while (*hp) { sh = sh * 16 + hex_val(*hp); hp++; }
+  return pwd_hash(pass, salt, 1) == sh;
 }
 
 // ----------------- Hardware Drivers -----------------
@@ -233,7 +266,214 @@ uint32_t pci_config_read_word(uint8_t bus, uint8_t slot, uint8_t func,
   return (uint32_t)((inl(0xCFC) >> ((offset & 2) * 8)) & 0xFFFF);
 }
 
-// ----------------- Video / Terminal -----------------
+// Forward declarations for NIC driver + exec
+void print_string(const char *str);
+void print_color(const char *str, uint8_t color);
+void do_tick(void);
+extern volatile uint32_t system_ticks;
+int find_file(const char *name);
+int check_perm(int idx, int want_write);
+pid_t proc_create_user(uint32_t entry, const char *name);
+
+static void map_page_in_dir(uint32_t pd_phys, uint32_t virt, uint32_t phys, uint32_t flags) {
+    uint32_t pd_idx = virt >> 22;
+    uint32_t pt_idx = (virt >> 12) & 0x3FF;
+    uint32_t *pd = (uint32_t *)pd_phys;
+    if (!(pd[pd_idx] & 1)) {
+        uint32_t pt_phys = pmm_alloc();
+        uint32_t *pt = (uint32_t *)pt_phys;
+        for (int i = 0; i < 1024; i++) pt[i] = 0x002;
+        pd[pd_idx] = pt_phys | 0x003;
+    }
+    uint32_t *pt = (uint32_t *)(pd[pd_idx] & ~0xFFF);
+    pt[pt_idx] = (phys & ~0xFFF) | (flags & 0xFFF);
+}
+
+// ----------------- RTL8139 NIC Driver + ICMP Ping (v6.3) -----------------
+#define RTL_VENDOR 0x10EC
+#define RTL_DEVICE 0x8139
+
+static uint16_t rtl_io = 0;
+static uint8_t rtl_mac[6];
+static uint8_t *rtl_rx = 0;
+static uint32_t rtl_rx_ptr = 0;
+static int rtl_up = 0;
+static uint8_t rtl_txbuf[1536] __attribute__((aligned(16)));
+
+#define RX_BUF_SZ  8192
+
+static void rtl_init(void) {
+  rtl_up = 0;
+  for (uint16_t bus = 0; bus < 5 && !rtl_up; bus++) {
+    for (uint8_t slot = 0; slot < 32 && !rtl_up; slot++) {
+      if (pci_config_read_word(bus, slot, 0, 0) != RTL_VENDOR) continue;
+      if (pci_config_read_word(bus, slot, 0, 2) != RTL_DEVICE) continue;
+      outl(0xCF8, 0x80000000 | (bus << 16) | (slot << 11) | 0x10);
+      uint32_t bar = inl(0xCFC);
+      if (!(bar & 1)) return;
+      rtl_io = bar & ~3;
+      for (int i = 0; i < 6; i++) rtl_mac[i] = inb(rtl_io + i);
+      // Reset
+      outb(rtl_io + 0x52, 0);
+      outb(rtl_io + 0x37, 0x10);
+      int t = 1000; while (t-- && (inb(rtl_io + 0x37) & 0x10)) __asm__ volatile("pause");
+      if (t <= 0) return;
+      rtl_rx = kmalloc(RX_BUF_SZ + 4096);
+      if (!rtl_rx) return;
+      uint32_t ralign = ((uint32_t)rtl_rx + 4095) & ~4095;
+      for (int i = 0; i < RX_BUF_SZ; i++) ((uint8_t *)ralign)[i] = 0;
+      outl(rtl_io + 0x30, ralign);
+      rtl_rx = (uint8_t *)ralign;
+      outl(rtl_io + 0x20, (uint32_t)&rtl_txbuf);
+      outl(rtl_io + 0x44, 0x0000009C);
+      outb(rtl_io + 0x37, 0x0C);
+      outw(rtl_io + 0x3C, 0x0005);
+      rtl_up = 1;
+      rtl_rx_ptr = 0;
+    }
+  }
+}
+
+static uint16_t ip_cksum(void *d, int len) {
+  uint32_t s = 0; uint16_t *p = d;
+  for (int i = 0; i < len / 2; i++) s += p[i];
+  if (len & 1) s += ((uint8_t *)d)[len - 1];
+  while (s >> 16) s = (s & 0xFFFF) + (s >> 16);
+  return ~s & 0xFFFF;
+}
+
+static int rtl_send(void *data, int len) {
+  if (!rtl_up || len > 1536) return -1;
+  memcpy(rtl_txbuf, data, len);
+  outl(rtl_io + 0x20, (uint32_t)&rtl_txbuf);
+  return 0;
+}
+
+static int rtl_recv(uint8_t *buf, int maxlen) {
+  if (!rtl_up) return -1;
+  uint16_t capr = inw(rtl_io + 0x38);
+  if (capr == rtl_rx_ptr) return 0;
+  uint16_t *hdr = (uint16_t *)(rtl_rx + rtl_rx_ptr);
+  uint16_t status = hdr[0];
+  uint16_t pktlen = hdr[1];
+  if (!(status & 1) || pktlen < 4 || pktlen > 1800) {
+    rtl_rx_ptr = capr; outw(rtl_io + 0x38, rtl_rx_ptr - 0x10);
+    return -1;
+  }
+  int dlen = pktlen - 4;
+  if (dlen > maxlen) dlen = maxlen;
+  memcpy(buf, (uint8_t *)(hdr + 2), dlen);
+  rtl_rx_ptr = (rtl_rx_ptr + pktlen + 4 + 3) & ~3;
+  if (rtl_rx_ptr >= RX_BUF_SZ) rtl_rx_ptr -= RX_BUF_SZ;
+  outw(rtl_io + 0x38, rtl_rx_ptr - 0x10);
+  return dlen;
+}
+
+static void rtl_ping(uint32_t ip) {
+  if (!rtl_up) { print_string("NIC not detected.\n"); return; }
+  uint8_t pkt[512];
+  uint8_t gw_mac[6] = {0x52, 0x54, 0x00, 0x12, 0x34, 0x56};
+  memcpy(pkt, gw_mac, 6); memcpy(pkt + 6, rtl_mac, 6);
+  pkt[12] = 0x08; pkt[13] = 0x00;
+  // IP header
+  uint8_t *ip_hdr = pkt + 14;
+  memset(ip_hdr, 0, 20);
+  ip_hdr[0] = 0x45;
+  ip_hdr[2] = 0x00; ip_hdr[3] = 0x3C; // total len = 60
+  ip_hdr[8] = 64;
+  ip_hdr[9] = 1;
+  *(uint32_t *)(ip_hdr + 12) = 0x0F02000A; // src 10.0.2.15
+  *(uint32_t *)(ip_hdr + 16) = ip;
+  *(uint16_t *)(ip_hdr + 10) = ip_cksum(ip_hdr, 20);
+  uint8_t *icmp = pkt + 34;
+  memset(icmp, 0, 40);
+  icmp[0] = 8; // echo request
+  icmp[4] = 0x12; icmp[5] = 0x34;
+  icmp[6] = 0x00; icmp[7] = 0x01;
+  for (int i = 0; i < 32; i++) icmp[8 + i] = 0x20 + i;
+  *(uint16_t *)(icmp + 2) = ip_cksum(icmp, 40);
+  int ip_tot = 20 + 40;
+  *(uint16_t *)(ip_hdr + 2) = (ip_tot << 8) | (ip_tot >> 8);
+  *(uint16_t *)(ip_hdr + 10) = ip_cksum(ip_hdr, 20);
+
+  char buf[32];
+  print_string("Pinging "); itoa(ip & 0xFF, buf, 10); print_string(buf);
+  print_string("."); itoa((ip >> 8) & 0xFF, buf, 10); print_string(buf);
+  print_string("."); itoa((ip >> 16) & 0xFF, buf, 10); print_string(buf);
+  print_string("."); itoa((ip >> 24) & 0xFF, buf, 10); print_string(buf);
+  print_string("...\n");
+  int frame_len = 14 + 20 + 40;
+  uint32_t timestamp = system_ticks;
+  if (rtl_send(pkt, frame_len) < 0) { print_string("TX fail.\n"); return; }
+  uint8_t reply[1536];
+  for (int wait = 0; wait < 100; wait++) {
+    int n = rtl_recv(reply, sizeof(reply));
+    if (n > 42) {
+      uint8_t *rip = reply + 14;
+      uint8_t *ricmp = reply + 34;
+      if (ricmp[0] == 0 && ricmp[4] == 0x12 && ricmp[5] == 0x34) {
+        uint32_t ms = (system_ticks - timestamp) * 10;
+        print_string("Reply: seq="); itoa(ricmp[6] * 256 + ricmp[7], buf, 10); print_string(buf);
+        print_string(" ttl="); itoa(rip[8], buf, 10); print_string(buf);
+        print_string(" time="); itoa(ms, buf, 10); print_string(buf);
+        print_string("ms\n");
+        return;
+      }
+    }
+  }
+  print_string("Timeout.\n");
+}
+
+void cmd_ping(const char *host) {
+  if (!host[0]) { print_string("Usage: ping <IP>\n"); return; }
+  uint32_t ip = 0; uint8_t oct = 0; int part = 0;
+  for (int i = 0; host[i] && part < 4; i++) {
+    if (host[i] >= '0' && host[i] <= '9') oct = oct * 10 + (host[i] - '0');
+    else if (host[i] == '.') { ip |= (oct << (part * 8)); oct = 0; part++; }
+  }
+  if (part < 3) { print_string("Bad IP.\n"); return; }
+  ip |= (oct << 24);
+  if (!rtl_up) rtl_init();
+  if (!rtl_up) { print_string("No NIC.\n"); return; }
+  for (int i = 0; i < 4; i++) rtl_ping(ip);
+}
+
+static void cmd_exec(const char *args) {
+  if (!args[0]) { print_string("Usage: exec <elf_file>\n"); return; }
+  int idx = find_file(args);
+  if (idx < 0) { print_string("exec: file not found\n"); return; }
+  if (check_perm(idx, 0)) { print_color("Denied.\n", 0x0C); return; }
+  if ((uint32_t)f_table[idx].size < sizeof(struct elf_header)) { print_string("exec: invalid ELF\n"); return; }
+  struct elf_header *hdr = (struct elf_header *)f_table[idx].content;
+  if (!elf_validate(hdr)) { print_string("exec: not a valid ELF binary\n"); return; }
+  uint32_t user_pd = create_user_page_dir();
+  if (!user_pd) { print_string("exec: page dir alloc failed\n"); return; }
+  struct elf_prog_header *ph = (struct elf_prog_header *)((uint32_t)hdr + hdr->phoff);
+  for (int i = 0; i < hdr->phnum; i++) {
+    if (ph[i].type == PT_LOAD) {
+      uint32_t start_virt = ph[i].vaddr & ~0xFFF;
+      uint32_t end_virt = (ph[i].vaddr + ph[i].memsz + 0xFFF) & ~0xFFF;
+      for (uint32_t v = start_virt; v < end_virt; v += PAGE_SIZE) {
+        uint32_t phys = pmm_alloc();
+        if (!phys) { print_string("exec: out of memory\n"); return; }
+        map_page_in_dir(user_pd, v, phys, 0x007);
+      }
+    }
+  }
+  uint32_t saved_pd;
+  __asm__ volatile("mov %%cr3, %0" : "=r"(saved_pd));
+  switch_page_dir(user_pd);
+  uint32_t entry = 0, heap_start = 0;
+  int ret = elf_load(hdr, &entry, &heap_start);
+  switch_page_dir(saved_pd);
+  if (ret < 0) { print_string("exec: ELF load failed\n"); return; }
+  pid_t pid = proc_create_user(entry, args);
+  if (pid < 0) { print_string("exec: task creation failed\n"); return; }
+  print_string("exec: started "); print_string(args);
+  char buf[16];
+  print_string(" (pid "); itoa(pid, buf, 10); print_string(buf); print_string(")\n");
+}
+
 void update_cursor() {
   uint16_t pos = cursor_y * 80 + cursor_x;
   outb(0x3D4, 0x0F);
@@ -452,7 +692,7 @@ void get_line(char *buffer, size_t max_len) {
 
 static uint32_t ticks = 0;
 static char hostname_str[32] = "hexaos";
-static inline void do_tick() {
+void do_tick() {
   for (int i = 0; i < 200; i++) {
     __asm__ volatile("pause");
   }
@@ -476,7 +716,7 @@ int find_file(const char *name);
 static int execute_cmd(const char *cmd, char *args);
 
 void cmd_help() {
-  print_string("HEXA OS 6.2 Commands (90+)\n");
+  print_string("HEXA OS 6.3 Commands (90+)\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep\n");
   print_string("          hostname, uptime, true, false, shutdown\n");
@@ -484,7 +724,7 @@ void cmd_help() {
   print_string(" Str:     echo, len, hex, reverse, tolower, toupper\n");
   print_string("          morse, tr, seq, basename, dirname\n");
   print_string(" Apps:    calc, rand, ascii, palette, matrix, guess\n");
-  print_string("          wc, tail, sort, which, env, tee\n");
+  print_string("          wc, tail, sort, which, env, tee, exec\n");
   print_string(" Files:   touch, cat, ls, rm, write, append, edit\n");
   print_string("          mv, cp, head, tail, grep, find, diff, uniq\n");
   print_string("          chmod, chown, pwd, mkdir\n");
@@ -503,7 +743,7 @@ void cmd_help() {
   print_string(" Info:    uname, uptime, about, mem, beep, history\n");
   print_string("          dmesg, ps, kill, wait, free, sysinfo\n");
   print_string(" New:     clock, ping, factor, hexdump, du, rev\n");
-  print_string("          shasum, watch\n");
+  print_string("          shasum, watch, exec\n");
   print_string("------------------------------------\n");
   print_string(" Pkg mgmt: ayo help\n");
 }
@@ -1313,17 +1553,17 @@ void cmd_neofetch(void) {
   char buf[16];
   clear_screen();
   print_color("    __________________________\n", 0x0B);
-  print_color("   /   H E X A   O S   6.2   \\\n", 0x0B);
+  print_color("   /   H E X A   O S   6.3   \\\n", 0x0B);
   print_color("  |  VFS  ·  Tetris  ·  Pipe  |\n", 0x0B);
   print_color("  |  90+ Cmds  ·  ATA Storage |\n", 0x0B);
   print_color("  |  32-bit Protected Mode    |\n", 0x0B);
   print_color("   \\________________________/\n", 0x0B);
   print_string(" ┌──────────────────────────────┐\n");
-  print_string(" │  OS:       "); print_color("HEXA OS 6.2 i386", 0x0A); print_string("         │\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 6.3 i386", 0x0A); print_string("         │\n");
   print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
   for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
   print_string("│\n");
-  print_string(" │  Version:  "); print_color("6.2 \"VFS Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Version:  "); print_color("6.3 \"VFS Edition\"", 0x0E); print_string("    │\n");
   print_string(" │  Kernel:   "); print_color(v, 0x0A); 
   for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
   print_string("│\n");
@@ -1393,7 +1633,7 @@ void cmd_neofetch(void) {
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
   print_string("       │\n");
   // Commands / features
-  print_string(" │  Shell:   HEXA CLI v6.2  80x25  │\n");
+  print_string(" │  Shell:   HEXA CLI v6.3  80x25  │\n");
   print_string(" │  Cache:   ");
   print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
   print_string("   │\n");
@@ -1406,6 +1646,9 @@ void cmd_neofetch(void) {
   print_string(" │  User:    ");
   print_color("Ring3 TSS  Context switch", 0x0A);
   print_string("  │\n");
+  print_string(" │  SMP:     ");
+  print_color("Not supported (single-core only)", 0x0E);
+  print_string("│\n");
   print_string(" └──────────────────────────────┘\n");
   print_string("\nPress any key to continue...");
   get_char(0);
@@ -1431,7 +1674,7 @@ void do_login(void) {
   print_color(
     "╭──────────────────────────────╮\n"
     "│         H E X A   O S        │\n"
-    "│        Version 6.2           │\n"
+    "│        Version 6.3           │\n"
     "│   VFS · Tetris · 90+ Cmds    │\n"
     "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
@@ -1449,7 +1692,7 @@ void do_login(void) {
       print_string("Password: ");
       get_line(pass, NAME_MAX);
       strcpy(u_table[u_count].name, name);
-      encode_pwd(u_table[u_count].pass_hash, pass, (uint8_t)(ticks & 0xFF));
+      encode_pwd(u_table[u_count].pass_hash, pass, ticks & 0xFFFF);
       u_table[u_count].is_root = 0;
       u_count++;
       save_data();
@@ -1484,8 +1727,11 @@ void cmd_touch(const char *name) {
   if (f_count >= MAX_FILES) { print_string("File system full.\n"); return; }
   if (find_file(name) >= 0) { print_string("File exists.\n"); return; }
   strcpy(f_table[f_count].name, name);
+  f_table[f_count].content = kmalloc(1);
+  if (!f_table[f_count].content) { print_string("Out of memory.\n"); return; }
   f_table[f_count].content[0] = '\0';
   f_table[f_count].size = 0;
+  f_table[f_count].cap = 1;
   f_table[f_count].owner = u_cur;
   f_table[f_count].mode = PERM_DEFAULT;
   f_count++;
@@ -1549,6 +1795,7 @@ void cmd_rm(const char *name) {
   int idx = find_file(name);
   if (idx < 0) { print_string("File not found.\n"); return; }
   if (check_perm(idx, 1)) { print_color("Permission denied.\n", 0x0C); return; }
+  if (f_table[idx].content) kfree(f_table[idx].content);
   for (int i = idx; i < f_count - 1; i++) f_table[i] = f_table[i + 1];
   f_count--;
   print_string("Deleted.\n");
@@ -1556,41 +1803,43 @@ void cmd_rm(const char *name) {
 
 void cmd_write(const char *args) {
   char fname[NAME_MAX] = {0};
-  char content[CONTENT_MAX] = {0};
+  char content[2048] = {0};
   int i = 0, j = 0;
   while (args[i] && args[i] != ' ' && j < NAME_MAX - 1) fname[j++] = args[i++];
   while (args[i] == ' ') i++;
   j = 0;
-  while (args[i] && j < CONTENT_MAX - 1) content[j++] = args[i++];
+  while (args[i] && j < 2047) content[j++] = args[i++];
   content[j] = '\0';
   if (!fname[0]) { print_string("Usage: write <file> <text>\n"); return; }
   int idx = find_file(fname);
   if (idx < 0) { print_string("File not found. Use touch first.\n"); return; }
   if (check_perm(idx, 1)) { print_color("Permission denied.\n", 0x0C); return; }
+  int len = strlen(content);
+  if (!file_ensure_cap(idx, len + 1)) { print_string("Out of memory.\n"); return; }
   strcpy(f_table[idx].content, content);
-  f_table[idx].size = strlen(content);
+  f_table[idx].size = len;
   print_string("Written.\n");
 }
 
 void cmd_append(const char *args) {
   char fname[NAME_MAX] = {0};
-  char content[CONTENT_MAX] = {0};
+  char content[2048] = {0};
   int i = 0, j = 0;
   while (args[i] && args[i] != ' ' && j < NAME_MAX - 1) fname[j++] = args[i++];
   while (args[i] == ' ') i++;
   j = 0;
-  while (args[i] && j < CONTENT_MAX - 1) content[j++] = args[i++];
+  while (args[i] && j < 2047) content[j++] = args[i++];
   content[j] = '\0';
   if (!fname[0]) { print_string("Usage: append <file> <text>\n"); return; }
   int idx = find_file(fname);
   if (idx < 0) { print_string("File not found.\n"); return; }
   if (check_perm(idx, 1)) { print_color("Permission denied.\n", 0x0C); return; }
   int cur = f_table[idx].size;
-  int room = CONTENT_MAX - cur - 1;
-  j = 0;
-  while (content[j] && j < room) f_table[idx].content[cur++] = content[j++];
-  f_table[idx].content[cur] = '\0';
-  f_table[idx].size = cur;
+  int contlen = strlen(content);
+  if (!file_ensure_cap(idx, cur + contlen + 1)) { print_string("Out of memory.\n"); return; }
+  for (int k = 0; k < contlen; k++) f_table[idx].content[cur + k] = content[k];
+  f_table[idx].content[cur + contlen] = '\0';
+  f_table[idx].size = cur + contlen;
   print_string("Appended.\n");
 }
 
@@ -1636,7 +1885,7 @@ void cmd_useradd(const char *name) {
   print_string(": ");
   char pwbuf[NAME_MAX];
   get_line(pwbuf, NAME_MAX);
-  encode_pwd(u_table[u_count].pass_hash, pwbuf, (uint8_t)(ticks & 0xFF));
+  encode_pwd(u_table[u_count].pass_hash, pwbuf, ticks & 0xFFFF);
   u_table[u_count].is_root = 0;
   u_count++;
   print_string("User created.\n");
@@ -1650,7 +1899,7 @@ void cmd_passwd(const char *args) {
   if (!check_pwd(buf, u_table[u_cur].pass_hash)) { print_color("Wrong password.\n", 0x0C); return; }
   print_string("New password: ");
   get_line(newbuf, NAME_MAX);
-  encode_pwd(u_table[u_cur].pass_hash, newbuf, (uint8_t)(ticks & 0xFF));
+  encode_pwd(u_table[u_cur].pass_hash, newbuf, ticks & 0xFFFF);
   print_string("Password changed.\n");
 }
 
@@ -1661,7 +1910,15 @@ void cmd_login(const char *args) {
       print_string("Password: ");
       char buf[NAME_MAX];
       get_line(buf, NAME_MAX);
-      if (check_pwd(buf, u_table[i].pass_hash)) { u_cur = i; print_string("Ok.\n"); return; }
+      if (check_pwd(buf, u_table[i].pass_hash)) {
+        u_cur = i; print_string("Ok.\n");
+        // Migrate old-format hash to new format
+        if (u_table[i].pass_hash[2] == ' ') {
+          encode_pwd(u_table[i].pass_hash, buf, ticks & 0xFFFF);
+          save_data();
+        }
+        return;
+      }
       print_color("Wrong password.\n", 0x0C); return;
     }
   print_string("User not found.\n");
@@ -1885,8 +2142,8 @@ void cmd_which(const char *name) {
     "morse","russian","insult","excuse","compliment","hack","bsod",
     "true","false","sort","env","ayo","chmod","chown","grep","find","tetris",
     "diff","uniq","alias","unalias","pwd","mkdir","tee","basename",
-    "dirname","ps","kill","wait","dmesg","seq","tr","who",
-    "clock","free","ping","factor","hexdump","du","rev","shasum",
+    "dirname","ps","kill","wait",    "dmesg","seq","tr","who",
+    "clock","free","ping","exec","factor","hexdump","du","rev","shasum",
     "sysinfo","watch"
   };
   int list_count = sizeof(list)/sizeof(list[0]);
@@ -2354,7 +2611,7 @@ void cmd_logo(void) {
   print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
   print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
   print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
-  print_color("  ║         6.2  VFS EDITION         ║\n", 0x0E);
+  print_color("  ║         6.3  VFS EDITION         ║\n", 0x0E);
   print_color("  ║                                  ║\n", 0x0A);
   print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
   print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
@@ -2487,7 +2744,7 @@ void cmd_bsod(void) {
   clear_screen();
 }
 
-// ---- Powerful New Commands v6.2 ----
+// ---- Powerful New Commands v6.3 ----
 void cmd_clock(void) {
   clear_screen();
   cursor_x = 0; cursor_y = 0;
@@ -2563,35 +2820,7 @@ void cmd_free(void) {
   itoa(MAX_USERS, buf, 10); print_string(buf); print_string("\n");
 }
 
-void cmd_ping(const char *host) {
-  if (!host[0]) { print_string("Usage: ping <hostname>\n"); return; }
-  char buf[16];
-  print_string("PING "); print_string(host); print_string(" (127.0.0.1): 56 bytes of data.\n");
-  int sent = 0, recv = 0;
-  for (int i = 0; i < 4; i++) {
-    if (kb_hit()) { get_char(0); break; }
-    sent++;
-    do_tick(); do_tick(); do_tick();
-    int lost = (rand() % 10) == 0;
-    if (!lost) {
-      recv++;
-      print_string("64 bytes from 127.0.0.1: seq=");
-      itoa(i, buf, 10); print_string(buf);
-      print_string(" ttl=64 time=");
-      itoa((rand() % 20) + 1, buf, 10); print_string(buf);
-      print_string(" ms\n");
-    } else {
-      print_string("Request timeout for seq=");
-      itoa(i, buf, 10); print_string(buf);
-      print_string("\n");
-    }
-    sleep_ticks(5000);
-  }
-  print_string("\n--- "); print_string(host); print_string(" ping statistics ---\n");
-  itoa(sent, buf, 10); print_string(buf); print_string(" packets sent, ");
-  itoa(recv, buf, 10); print_string(buf); print_string(" received, ");
-  itoa((sent - recv) * 100 / sent, buf, 10); print_string(buf); print_string("% packet loss\n");
-}
+
 
 void cmd_factor(const char *args) {
   int n = atoi(args);
@@ -2744,7 +2973,7 @@ void cmd_watch(const char *args) {
 
 void cmd_sysinfo(void) {
   char buf[16];
-  print_color("HEXA OS v6.2 - Quick System Info\n", 0x0B);
+  print_color("HEXA OS v6.3 - Quick System Info\n", 0x0B);
   print_string("================================\n");
   cmd_cpuinfo();
   print_string("Memory: "); itoa(pmm_count_free() * 4, buf, 10); print_string(buf); print_string(" KB free\n");
@@ -3104,111 +3333,124 @@ static void ata_init(void) {
   disk_ok = 0;
 }
 
+// Write-ahead journal for atomic saves
+#define JOURNAL_LBA   99
 #define HEADER_LBA    100
 #define USERS_LBA     101
 #define FILES_LBA     102
-#define FILE_SECTORS  4
-#define FILES_TOTAL   (MAX_FILES * FILE_SECTORS)
-// Content per file across FILE_SECTORS sectors:
-// Sector 0: name(32)+size(4)+owner(4)+mode(2)+content[0..469]
-// Sector 1: content[470..981]
-// Sector 2: content[982..1493]
-// Sector 3: content[1494..2005] (last 42 unused)
 
+#define J_STATE_CLEAN  0x00
+#define J_STATE_SAVING 0x01
+
+static uint32_t journal_gen = 0;
+
+// Block-based file storage:
+// Header:   LBA 100: magic(4)+pad(4)+gen(4)+pad(4)+u_cnt(4)+f_cnt(4)+file_sizes[64](256)
+// Users:    LBA 101: user entries (64 bytes each)
+// File data starts at LBA 102
+// Each file uses ceil(size/508) data blocks, allocated sequentially.
+// Blocks are never freed (append-only allocator — adequate for a toy OS).
 
 static int save_data(void) {
   if (!disk_ok) return 0;
   uint8_t buf[512];
+  uint32_t gen = ++journal_gen;
   memset(buf, 0, 512);
-  buf[0] = 'H'; buf[1] = 'E'; buf[2] = 'X'; buf[3] = 'A';
-  *(uint32_t *)(buf + 16) = u_count;
-  *(uint32_t *)(buf + 20) = f_count;
-  ata_write(HEADER_LBA, (uint16_t *)buf);
+  buf[0] = 'J'; buf[1] = 'R'; buf[2] = 'N'; buf[3] = 'L';
+  buf[4] = J_STATE_SAVING;
+  *(uint32_t *)(buf + 8) = gen;
+  ata_write(JOURNAL_LBA, (uint16_t *)buf);
   memset(buf, 0, 512);
   for (int i = 0; i < u_count && i < MAX_USERS; i++) {
     memcpy(buf + i * 64, u_table[i].name, 32);
     memcpy(buf + i * 64 + 32, u_table[i].pass_hash, 32);
   }
   ata_write(USERS_LBA, (uint16_t *)buf);
-  for (int i = 0; i < f_count && i < MAX_FILES; i++) {
-    // Sector 0: metadata + content[0..469]
-    memset(buf, 0, 512);
-    memcpy(buf, f_table[i].name, 32);
-    *(uint32_t *)(buf + 32) = f_table[i].size;
-    *(uint32_t *)(buf + 36) = f_table[i].owner;
-    *(uint16_t *)(buf + 40) = f_table[i].mode;
-    memcpy(buf + 42, f_table[i].content, 470);
-    ata_write(FILES_LBA + i * FILE_SECTORS, (uint16_t *)buf);
-    // Sector 1: content[470..981]
-    memset(buf, 0, 512);
-    memcpy(buf, f_table[i].content + 470, 512);
-    ata_write(FILES_LBA + i * FILE_SECTORS + 1, (uint16_t *)buf);
-    // Sector 2: content[982..1493]
-    memset(buf, 0, 512);
-    memcpy(buf, f_table[i].content + 982, 512);
-    ata_write(FILES_LBA + i * FILE_SECTORS + 2, (uint16_t *)buf);
-    // Sector 3: content[1494..2005]
-    memset(buf, 0, 512);
-    int rem = f_table[i].size > 1494 ? (f_table[i].size - 1494 > 512 ? 512 : f_table[i].size - 1494) : 0;
-    if (rem > 0) memcpy(buf, f_table[i].content + 1494, rem);
-    ata_write(FILES_LBA + i * FILE_SECTORS + 3, (uint16_t *)buf);
+  uint32_t file_sizes[MAX_FILES] = {0};
+  uint32_t cur_lba = FILES_LBA;
+  for (int i = 0; i < f_count; i++) {
+    int sz = f_table[i].size;
+    file_sizes[i] = sz;
+    int need = sz > 0 ? (sz + 507) / 508 : 1;
+    uint8_t dbuf[512];
+    int remain = sz;
+    for (int b = 0; b < need; b++) {
+      memset(dbuf, 0, 512);
+      int chunk = remain > 508 ? 508 : remain;
+      if (chunk > 0) memcpy(dbuf, f_table[i].content + b * 508, chunk);
+      ata_write(cur_lba++, (uint16_t *)dbuf);
+      remain -= chunk;
+    }
   }
+  memset(buf, 0, 512);
+  buf[0] = 'H'; buf[1] = 'E'; buf[2] = 'X'; buf[3] = 'A';
+  *(uint32_t *)(buf + 8) = gen;
+  *(uint32_t *)(buf + 16) = u_count;
+  *(uint32_t *)(buf + 20) = f_count;
+  memcpy(buf + 24, file_sizes, sizeof(uint32_t) * MAX_FILES);
+  ata_write(HEADER_LBA, (uint16_t *)buf);
+  memset(buf, 0, 512);
+  buf[0] = 'J'; buf[1] = 'R'; buf[2] = 'N'; buf[3] = 'L';
+  buf[4] = J_STATE_CLEAN;
+  *(uint32_t *)(buf + 8) = gen;
+  ata_write(JOURNAL_LBA, (uint16_t *)buf);
   return 1;
 }
 
 static void load_data(void) {
   uint8_t buf[512];
+  if (ata_read(JOURNAL_LBA, (uint16_t *)buf) && buf[0] == 'J' && buf[1] == 'R' && buf[2] == 'N' && buf[3] == 'L') {
+    if (buf[4] != J_STATE_CLEAN) { disk_ok = 0; return; }
+  }
   if (!ata_read(HEADER_LBA, (uint16_t *)buf)) { disk_ok = 0; return; }
   if (buf[0] != 'H' || buf[1] != 'E' || buf[2] != 'X' || buf[3] != 'A') { return; }
   disk_ok = 1;
   int su = *(uint32_t *)(buf + 16), sf = *(uint32_t *)(buf + 20);
   if (su > MAX_USERS) su = MAX_USERS;
   if (sf > MAX_FILES) sf = MAX_FILES;
+  uint32_t file_sizes[MAX_FILES] = {0};
+  memcpy(file_sizes, buf + 24, sizeof(uint32_t) * MAX_FILES);
   if (!ata_read(USERS_LBA, (uint16_t *)buf)) return;
   u_count = su;
   for (int i = 0; i < su; i++) {
     memcpy(u_table[i].name, buf + i * 64, 32);
     memcpy(u_table[i].pass_hash, buf + i * 64 + 32, 32);
     u_table[i].is_root = (strcmp(u_table[i].name, "root") == 0);
-    // If stored password is plaintext (old format), hash it
-    if (u_table[i].pass_hash[2] != ' ' && u_table[i].pass_hash[0]) {
-      char plain[32];
-      memcpy(plain, u_table[i].pass_hash, 32);
-      encode_pwd(u_table[i].pass_hash, plain, (uint8_t)(i * 37 + 0xA5));
-    }
   }
   if (strcmp(u_table[0].name, "root") != 0) {
     strcpy(u_table[0].name, "root");
     encode_pwd(u_table[0].pass_hash, "root", 0xA5);
     u_table[0].is_root = 1;
-    u_count = 1;
-    f_count = 0;
+    u_count = 1; f_count = 0;
     return;
   }
   f_count = sf;
+  uint32_t cur_lba = FILES_LBA;
   for (int i = 0; i < sf && i < MAX_FILES; i++) {
-    if (!ata_read(FILES_LBA + i * FILE_SECTORS, (uint16_t *)buf)) return;
-    memcpy(f_table[i].name, buf, 32);
-    f_table[i].size = *(uint32_t *)(buf + 32);
-    f_table[i].owner = *(uint32_t *)(buf + 36);
-    f_table[i].mode = *(uint16_t *)(buf + 40);
-    if (f_table[i].mode == 0) f_table[i].mode = PERM_DEFAULT;
-    int csize = f_table[i].size;
-    if (csize > CONTENT_MAX) csize = CONTENT_MAX;
-    memcpy(f_table[i].content, buf + 42, 470);
-    if (!ata_read(FILES_LBA + i * FILE_SECTORS + 1, (uint16_t *)buf)) return;
-    memcpy(f_table[i].content + 470, buf, csize > 470 ? (csize - 470 > 512 ? 512 : csize - 470) : 0);
-    if (csize > 982) {
-      if (!ata_read(FILES_LBA + i * FILE_SECTORS + 2, (uint16_t *)buf)) return;
-      memcpy(f_table[i].content + 982, buf, csize - 982 > 512 ? 512 : csize - 982);
+    int sz = file_sizes[i];
+    if (sz > CONTENT_MAX) sz = CONTENT_MAX;
+    int need = sz > 0 ? (sz + 507) / 508 : 1;
+    int total = need * 508;
+    if (total < 1) total = 1;
+    f_table[i].content = kmalloc(total + 1);
+    if (!f_table[i].content) {
+      f_table[i].content = kmalloc(1);
+      if (f_table[i].content) { f_table[i].content[0] = 0; f_table[i].size = 0; f_table[i].cap = 1; }
+      cur_lba += need;
+      continue;
     }
-    if (csize > 1494) {
-      if (!ata_read(FILES_LBA + i * FILE_SECTORS + 3, (uint16_t *)buf)) return;
-      int rem = csize - 1494;
-      memcpy(f_table[i].content + 1494, buf, rem > 512 ? 512 : rem);
+    f_table[i].cap = total + 1;
+    f_table[i].size = 0;
+    int pos = 0;
+    for (int b = 0; b < need; b++) {
+      if (!ata_read(cur_lba++, (uint16_t *)buf)) break;
+      int chunk = 508;
+      if (pos + chunk > total) chunk = total - pos;
+      memcpy(f_table[i].content + pos, buf, chunk);
+      pos += chunk;
     }
-    f_table[i].content[csize] = '\0';
-    f_table[i].size = csize;
+    f_table[i].content[pos] = '\0';
+    f_table[i].size = sz > 0 && sz < pos ? sz : pos;
   }
 }
 
@@ -3225,7 +3467,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "reboot") == 0) { outb(0x64, 0xFE); while (1); return 1; }
   if (strcmp(cmd, "uptime") == 0) { char b[16]; itoa(ticks,b,10); print_string(b); print_string(" ticks\n"); return 1; }
   if (strcmp(cmd, "color") == 0) { current_color = atoi(args) & 0x0F; return 1; }
-  if (strcmp(cmd, "about") == 0) { print_string("HEXA OS - 32-bit.\n"); return 1; }
+  if (strcmp(cmd, "about") == 0) { print_string("HEXA OS 6.3 - 32-bit hobby OS with block FS, NIC driver, RTL8139 ping, exec.\n"); return 1; }
   if (strcmp(cmd, "mem") == 0) { print_string("VGA: 4000B\n"); return 1; }
   if (strcmp(cmd, "beep") == 0) { serial_putc('\a'); return 1; }
   if (strcmp(cmd, "halt") == 0) { __asm__ volatile("cli; hlt"); return 1; }
@@ -3254,7 +3496,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.2 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 6.3 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "touch") == 0) { cmd_touch(args); save_data(); return 1; }
   if (strcmp(cmd, "ls") == 0) { cmd_ls(); return 1; }
@@ -3329,6 +3571,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "clock") == 0) { cmd_clock(); return 1; }
   if (strcmp(cmd, "free") == 0) { cmd_free(); return 1; }
   if (strcmp(cmd, "ping") == 0) { cmd_ping(args); return 1; }
+  if (strcmp(cmd, "exec") == 0) { cmd_exec(args); return 1; }
   if (strcmp(cmd, "factor") == 0) { cmd_factor(args); return 1; }
   if (strcmp(cmd, "hexdump") == 0) { cmd_hexdump(args); return 1; }
   if (strcmp(cmd, "du") == 0) { cmd_du(); return 1; }
@@ -3392,6 +3635,11 @@ static int execute_cmd(const char *cmd, char *args) {
     print_string("password: ");
     get_line(pw, 32);
     if (!check_pwd(pw, u_table[u_cur].pass_hash)) { print_color("Access denied.\n", 0x0C); return 1; }
+    // Migrate old-format hash to new format
+    if (u_table[u_cur].pass_hash[2] == ' ') {
+      encode_pwd(u_table[u_cur].pass_hash, pw, ticks & 0xFFFF);
+      save_data();
+    }
     char c[32]={0}, a[96]={0}; int i=0,j=0;
     while(args[i]&&args[i]!=' '&&j<31){c[j++]=args[i++];}
     while(args[i]==' '){i++;} j=0;

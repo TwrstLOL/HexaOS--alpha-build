@@ -28,7 +28,7 @@ kernel.bin: kernel.elf
 	objcopy -O binary $< $@
 
 storage.img:
-	dd if=/dev/zero bs=512 count=256 of=storage.img 2>/dev/null
+	dd if=/dev/zero bs=512 count=4096 of=storage.img 2>/dev/null
 
 os.img: boot.bin kernel.bin
 	cat boot.bin kernel.bin > os.img
@@ -37,11 +37,11 @@ os.img: boot.bin kernel.bin
 
 run: os.img storage.img
 	@echo "[*] Booting HEXA OS in QEMU..."
-	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -d cpu_reset -no-reboot
+	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -d cpu_reset -no-reboot -netdev user,id=u1 -device rtl8139,netdev=u1
 
 debug: kernel.elf os.img storage.img
 	@echo "[*] Starting QEMU with GDB stub on port 1234..."
-	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -S -s &
+	@qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -S -s -netdev user,id=u1 -device rtl8139,netdev=u1 &
 	@gdb -ex "target remote localhost:1234" -ex "symbol-file kernel.elf" -ex "b kernel_main" -ex "c"
 
 clean:

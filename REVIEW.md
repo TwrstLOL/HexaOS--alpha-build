@@ -1,6 +1,6 @@
 # HexaOS — Kernel Infrastructure Review
 
-## Status: v6.2 "VFS Edition" — Panic overhauled, 5-stage crash sim
+## Status: v6.3 "VFS Edition" — Block FS, NIC driver, real ping, exec, password hardening
 
 ### ✅ Boot cleanly
 - Stable bootloader (real mode → protected mode, floppy CHS load with bank switching)
@@ -15,6 +15,7 @@
 - **v6.0**: Arrow keys from IRQ keyboard now properly mapped for history navigation
 - **v6.1**: Clock command rewritten with direct VGA/serial output, Tetris rebuilt with uint16 bitmask shape data
 - **v6.2**: `panic` command overhauled with 5-stage simulated crash, root required
+- **v6.3**: Password hashing hardened (16-bit salt, 5 iters, lazy migration), write-ahead journal for atomic saves, block-based filesystem with dynamic kmalloc content, RTL8139 NIC driver + ICMP ping, exec command (ELF loader wired up)
 
 ### ✅ Memory baseline
 - Paging enabled (identity map first 8MB + dynamic page table allocation)
@@ -47,6 +48,7 @@
 - **v6.0**: 21 syscalls defined (SYS_PRINT through SYS_MUNMAP), 6 implemented
 - **v6.1**: Clock and Tetris commands fixed and working
 - **v6.2**: `panic` command rewritten: register dump, stack trace, memory scan, filesystem check, recovery prompt, countdown shutdown
+- **v6.3**: `exec` command loads ELF binaries from filesystem into user tasks, RTL8139 NIC driver + real ICMP ping
 
 ### ✅ Persistence
 - ATA PIO block device driver (primary channel, LBA28)
@@ -55,6 +57,7 @@
 - **v6.0**: File content expanded from 512 to 2006 bytes (4 ATA sectors per file)
 - **v6.1**: Version bumped to 6.1, all docs and banners updated
 - **v6.2**: Version bumped to 6.2, panic command rewritten
+- **v6.3**: Version bumped to 6.3, block-based FS (dynamic kmalloc content + block-chain storage), write-ahead journal, storage image 4096 sectors
 
 ### ✅ Control loop
 - Page faults are logged and recovered (system continues)
@@ -67,54 +70,57 @@
 - **v6.1**: `clock` rewritten (direct VGA+serial), `tetris` rebuilt with correct bitmask shape data
 - **v6.2**: `panic` overhauled — 5 stages, register dump, stack trace, memory map, filesystem scan, recovery/countdown
 - Fixed IRQ keyboard arrow key support for history navigation
+- **v6.3**: `exec` command — loads ELF binary from filesystem, creates user task; `ping` rebuilt as real RTL8139 ICMP echo
 
-## Recent Changes (v6.2)
+## Recent Changes (v6.3)
 
 | Fix | Description |
 |-----|-------------|
-| Panic command | Overhauled — 5 stages: reg dump, stack trace, memory map, FS scan, shutdown countdown |
-| Root check | `panic` now requires root (`diese panic`) |
-| Version bump | All banners, help strings, neofetch, login screen, uname updated to 6.2 |
+| Password hashing | 16-bit salt, 5 iterations, `"SSSS+IHHHHHHHH"` format with lazy migration |
+| Write-ahead journal | Journal sector at LBA 99, `SAVING`/`CLEAN` states, prevents corruption |
+| Block-based FS | Dynamic kmalloc content, block-chain disk storage, 4096-sector image |
+| RTL8139 NIC | PCI probe, init, TX/RX, ICMP echo-request/reply |
+| Real ping | Ethernet+IP+ICMP frame, QEMU gateway (10.0.2.2), timing |
+| exec command | ELF binary loading, user page directory, new scheduler task |
+| SMP note | Explicitly documented as unsupported in neofetch |
+| Version bump | All banners, help strings, neofetch, login screen, uname updated to 6.3 |
 
-## New Features (v6.2)
+## New Features (v6.3)
 
 | Feature | Description |
 |---------|-------------|
-| panic (overhauled v6.2) | 5-stage simulated kernel crash — regs, stack, mem, FS scan, shutdown |
-| Tetris (rebuilt v6.1) | Full Tetris game — bitmask shapes, correct collision/rotation/locking |
-| clock (fixed v6.1) | Live RTC clock display with working serial+VGA output |
-| free | Memory statistics showing PMM, tasks, files, users |
-| ping | Simulated network ping with 4-packet stats |
-| factor | Prime factorization of any integer |
-| hexdump | Hex + printable ASCII dump of any file |
-| du | Disk usage by file |
-| rev | Reverse file content |
-| shasum | DJB2 hash of file |
-| sysinfo | Quick system overview |
-| watch | Repeat any command at intervals |
+| exec | Load ELF binaries from filesystem and spawn as user tasks |
+| ping (real) | ICMP echo over RTL8139 NIC — built from scratch |
+| RTL8139 driver | PCI RTL8139 NIC with TX/RX ring, MAC detection, init |
+| Block-based FS | Dynamic file content via kmalloc, block-chain disk persistence |
+| Write-ahead journal | Atomic file table saves with journal state recovery |
+| Password hardening | 16-bit salt, 5 hash iterations, old-format migration |
 
 ## Verification
 
 Build: `make clean && make`
-Run: `make run` (or `qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic`)
+Run: `make run` (or `qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic -netdev user,id=u1 -device rtl8139,netdev=u1`)
 
 Test sequence:
 1. Login as `root` / `root`
 2. Try commands: `help`, `echo`, `date`, `cpuinfo`, `lspci`, `touch`, `write`, `cat`, `ls`, `uptime`, `free`, `sysinfo`
 3. Install games: `diese ayo add games` then play `tetris`, `snake`, `tictactoe`
 4. Test file ops: `touch test.txt`, `write test.txt hello`, `cat test.txt`, `wc test.txt`, `hexdump test.txt`, `du`, `rev test.txt`, `shasum test.txt`
-5. Test new utils: `clock`, `ping localhost`, `factor 12345`, `watch date`
-6. Verify no crashes or panics from normal operation
+5. Test new v6.3 features:
+   - NIC: `lspci` should show RTL8139, `ping 10.0.2.2` should get replies
+   - Block FS: create files > 2006 bytes, they should persist on reboot
+   - Password migration: old-format password hashes get auto-upgraded on login
+   - exec: write a small ELF binary to a file, run `exec <filename>`
+6. Test old utils: `clock`, `factor 12345`, `watch date`
+7. Verify neofetch shows SMP: not supported
+8. Verify no crashes or panics from normal operation
 
 ## TODO (Future Work)
 
 1. Make shell a proper scheduler task for true multitasking
-2. Wire up `enter_userspace` to run user tasks in ring 3
-3. Implement `exec()` syscall to load user programs from filesystem
-4. Add `fork()` syscall for process creation
-5. Proper VFS layer with mountable filesystems
-6. Add `kmalloc` with slab allocation for better performance
-7. Implement demand paging (load pages on fault)
-8. Add user-space signal handling
-9. ELF loader integration (loader exists but not wired to exec)
-10. SMP support (multi-core scheduling)
+2. Implement `fork()` syscall for process creation
+3. Proper VFS layer with mountable filesystems
+4. Add `kmalloc` with slab allocation for better performance
+5. Implement demand paging (load pages on fault)
+6. Add user-space signal handling
+7. SMP support (multi-core scheduling) — blocking for now

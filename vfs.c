@@ -7,17 +7,18 @@
 extern int f_count;
 extern int find_file(const char *name);
 extern int check_perm(int idx, int want_write);
-#define CONTENT_MAX 2006
+extern int file_ensure_cap(int idx, int needed);
 
 // String functions from hexa.c
 extern char *strcpy(char *dest, const char *src);
 extern size_t strlen(const char *str);
 
-// hexa.c file table structure
+// hexa.c file table structure (dynamic content)
 struct hexa_file {
   char name[32];
-  char content[2006];
+  char *content;
   int size;
+  int cap;
   int owner;
   uint16_t mode;
 };
@@ -123,8 +124,9 @@ int vfs_write(int fd, const char *buf, int count) {
     int idx = vfs_fds[fd].ref;
     if (idx < 0 || idx >= f_count) return -1;
     int pos = vfs_fds[fd].pos;
+    if (!file_ensure_cap(idx, pos + count + 1)) return -1;
     int n = 0;
-    while (n < count && pos + n < 2048 && n < CONTENT_MAX - pos - 1) {
+    while (n < count && pos + n < 65528) {
         f_table[idx].content[pos + n] = buf[n];
         n++;
     }
