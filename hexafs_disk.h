@@ -23,11 +23,39 @@
 
 #define HEXAFS_FORM            0x01
 #define HEXAFS_ABSTRACTION     0x02
-#define HEXAFS_SYMLINK         0x03
+#define HEXAFS_ALIAS          0x03
 #define HEXAFS_PROCSTATE       0x04
 #define HEXAFS_CONFIG          0x05
 #define HEXAFS_SNAPSHOT        0x06
 #define HEXAFS_CAPABILITY      0x07
+#define HEXAFS_EVENT           0x08
+
+#define CAP_TYPE_ROOT          0x00000001
+#define CAP_TYPE_INTENT        0x00000002
+#define CAP_TYPE_REPLAY_WRITE  0x00000004
+#define CAP_TYPE_SNAP_CREATE   0x00000008
+#define CAP_TYPE_GRANT_AUTH    0x00000010
+#define CAP_TYPE_SEND_TO_PID   0x00000100
+#define CAP_TYPE_RECV_TERMINATE 0x00000200
+#define CAP_TYPE_RECV_PAUSE    0x00000400
+#define CAP_TYPE_NET_ADMIN     0x00001000
+#define CAP_TYPE_BOOT_POLICY   0x00002000
+
+typedef struct __attribute__((packed)) {
+    uint32_t cap_type;
+    uint32_t grantee_snap;
+    uint32_t grantor_snap;
+    uint32_t expires_tick;
+    uint32_t delegatable;
+    uint32_t grant_block_hash;
+} cap_grant_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t cap_type;
+    uint32_t grant_hash;
+    uint32_t revoked_by_snap;
+    uint32_t timestamp;
+} cap_revoke_t;
 
 typedef struct __attribute__((packed)) {
     char     magic[8];

@@ -1,8 +1,10 @@
 #include "types.h"
 #include "net.h"
 #include "hexafs.h"
+#include "hexafs_disk.h"
 #include "process.h"
 #include "log.h"
+#include "kobserve.h"
 
 extern void *memset(void *dest, int c, size_t len);
 extern void *memcpy(void *dest, const void *src, size_t len);
@@ -20,6 +22,8 @@ static uint8_t loopback_ring[4096];
 static int loopback_head = 0;
 static int loopback_tail = 0;
 
+static uint32_t net_history_count = 0;
+
 int net_init(void) {
     memset(net_interfaces, 0, sizeof(net_interfaces));
     memset(net_connections, 0, sizeof(net_connections));
@@ -27,6 +31,7 @@ int net_init(void) {
     net_conn_count = 0;
     loopback_head = 0;
     loopback_tail = 0;
+    net_history_count = 0;
 
     net_interface_t lo;
     memset(&lo, 0, sizeof(lo));
@@ -101,6 +106,7 @@ int net_connection_open(uint32_t local_ip, uint32_t local_port, uint32_t remote_
     conn->owner_pid = (uint32_t)(current_task >= 0 ? tasks[current_task].pid : 0);
     conn->snap_id = 0;
     net_conn_count++;
+    net_history_count++;
     return net_conn_count - 1;
 }
 
@@ -132,7 +138,7 @@ int net_connection_list(char *out, int out_len) {
         itoa((int)c->remote_port, buf, 10);
         for (int j = 0; buf[j] && pos < out_len - 1; j++) out[pos++] = buf[j];
         out[pos++] = ' ';
-        const char *state_str = c->state == NET_ESTABLISHED ? "EST" : "CLS";
+        const char *state_str = c->state == NET_ESTABLISHED ? "EST" : (c->state == NET_LISTEN ? "LST" : "CLS");
         for (int j = 0; state_str[j] && pos < out_len - 1; j++) out[pos++] = state_str[j];
         out[pos++] = '\n';
     }
@@ -157,4 +163,46 @@ int net_loopback_recv(uint8_t *buf, int maxlen) {
         loopback_tail = (loopback_tail + 1) % 4096;
     }
     return total;
+}
+
+int net_history_list(char *out, int out_len) {
+    int pos = 0;
+    char buf[16];
+    const char *hdr = "Network History:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    itoa((int)net_history_count, buf, 10);
+    for (int i = 0; buf[i] && pos < out_len - 1; i++) out[pos++] = buf[i];
+    const char *msg = " state changes recorded\n";
+    for (int i = 0; msg[i] && pos < out_len - 1; i++) out[pos++] = msg[i];
+    out[pos] = 0;
+    return pos;
+}
+
+static int kobserve_net_ifaces(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    return net_interface_list(out, out_len);
+}
+
+static int kobserve_net_conns(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    return net_connection_list(out, out_len);
+}
+
+static int kobserve_net_history(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    return net_history_list(out, out_len);
+}
+
+void net_register_observers(void) {
+    kobserve_register("/@net/interfaces", kobserve_net_ifaces, 0);
+    kobserve_register("/@net/connections", kobserve_net_conns, 0);
+    kobserve_register("/@net/history", kobserve_net_history, 0);
+}
+
+int net_get_interface_count(void) {
+    return net_if_count;
+}
+
+int net_get_connection_count(void) {
+    return net_conn_count;
 }

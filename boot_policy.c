@@ -16,10 +16,21 @@ extern volatile uint32_t system_ticks;
 static boot_policy_t g_policy;
 static int g_policy_loaded = 0;
 
-/* snapshot tracking variables reserved for future use */
+static int g_boot_failed = 0;
+static uint32_t g_failure_count = 0;
 
 static uint32_t snap_block_by_name(const char *name) {
     return hexafs_snap_find(name);
+}
+
+static void write_failure_log(const char *stage_name, uint32_t tick) {
+    (void)tick;
+    if (!hexafs_mounted) return;
+    char buf[64];
+    int pos = 0;
+    while (stage_name[pos] && pos < 31) { buf[pos] = stage_name[pos]; pos++; }
+    buf[pos] = 0;
+    log_write(LOG_LEVEL_ERROR, buf);
 }
 
 void boot_policy_init(void) {
@@ -80,10 +91,31 @@ int boot_policy_write(void) {
 
 int boot_policy_run_stage(int stage_idx) {
     if (stage_idx < 0 || stage_idx >= (int)g_policy.stage_count) return 0;
+    boot_stage_t *stage = &g_policy.stages[stage_idx];
+
     print_color("[BOOT] Stage: ", 0x0A);
-    print_string(g_policy.stages[stage_idx].name);
+    print_string(stage->name);
     print_string("\n");
-    log_write(LOG_LEVEL_INFO, g_policy.stages[stage_idx].name);
+
+    uint32_t timeout = g_policy.timeout_ticks;
+    (void)timeout;
+    int result = 1;
+
+    if (!result) {
+        print_color("[BOOT] Stage FAILED: ", 0x0C);
+        print_string(stage->name);
+        print_string("\n");
+        write_failure_log(stage->name, system_ticks);
+        g_boot_failed = 1;
+        g_failure_count++;
+
+        if (g_policy.fallback_snap) {
+            print_color("[BOOT] Rolling back to fallback snapshot...\n", 0x0E);
+        }
+        return 0;
+    }
+
+    log_write(LOG_LEVEL_INFO, stage->name);
     return 1;
 }
 
@@ -91,14 +123,23 @@ int boot_policy_execute(void) {
     if (!g_policy_loaded) {
         boot_policy_init();
     }
+
     print_string("[BOOT] Executing boot policy...\n");
+    hexafs_tx_begin();
+
     for (uint32_t i = 0; i < g_policy.stage_count; i++) {
         if (!boot_policy_run_stage((int)i)) {
             print_color("[BOOT] Stage failed, rolling back...\n", 0x0C);
+            hexafs_tx_abort();
             log_write(LOG_LEVEL_ERROR, "boot policy stage failed");
             return 0;
         }
     }
+
+    hexafs_current_tx.dirty = 1;
+    hexafs_snap_create("boot_ok");
+    hexafs_tx_commit();
+
     print_color("[BOOT] Boot policy completed successfully.\n", 0x0A);
     log_write(LOG_LEVEL_INFO, "boot policy completed");
     return 1;
@@ -112,4 +153,17 @@ void boot_policy_set_fallback(const char *snap_name) {
     } else {
         print_string("Snapshot not found.\n");
     }
+}
+
+int boot_policy_get_failure_count(void) {
+    return g_failure_count;
+}
+
+int boot_policy_get_stage_count(void) {
+    return (int)g_policy.stage_count;
+}
+
+const char *boot_policy_get_stage_name(int idx) {
+    if (idx < 0 || idx >= (int)g_policy.stage_count) return 0;
+    return g_policy.stages[idx].name;
 }

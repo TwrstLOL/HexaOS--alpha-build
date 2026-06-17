@@ -26,5 +26,8 @@ int boot_policy_write(void);
 int boot_policy_run_stage(int stage_idx);
 int boot_policy_execute(void);
 void boot_policy_set_fallback(const char *snap_name);
+int boot_policy_get_failure_count(void);
+int boot_policy_get_stage_count(void);
+const char *boot_policy_get_stage_name(int idx);
 
 #endif

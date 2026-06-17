@@ -17,12 +17,28 @@
 
 #define PROC_NAME_LEN 24
 
+#define EVENT_TERMINATE 1
+#define EVENT_PAUSE     2
+#define EVENT_RESUME    3
+#define EVENT_CUSTOM    4
+#define EVENT_ERROR     5
+
+#define EVENT_QUEUE_SIZE 16
+
 struct fd_entry {
     int type;  // 0=closed, 1=form, 2=pipe, 3=console
     int ref;   // form index / pipe id
     int pos;
     int flags;
 };
+
+typedef struct {
+    uint32_t event_type;
+    uint32_t sender_pid;
+    uint32_t sender_snap;
+    uint32_t payload_hash;
+    uint32_t timestamp;
+} hexaos_event_t;
 
 struct task {
     int pid;
@@ -38,6 +54,10 @@ struct task {
     uint8_t stack[STACK_SIZE];
     char name[PROC_NAME_LEN];
     struct fd_entry fds[MAX_FDS];
+    hexaos_event_t event_queue[EVENT_QUEUE_SIZE];
+    int event_head;
+    int event_tail;
+    volatile int event_pending;
 };
 
 void proc_init(void);
@@ -52,6 +72,9 @@ void yield(void);
 int proc_get_fd_entry(pid_t pid, int fd, struct fd_entry **fde);
 int proc_alloc_fd(pid_t pid, int type, int ref);
 void proc_free_fd(pid_t pid, int fd);
+
+int process_event_send(pid_t target_pid, uint32_t event_type, uint32_t payload_hash);
+int process_event_poll(uint32_t event_type_mask, hexaos_event_t *out_event);
 
 extern struct task tasks[MAX_TASKS];
 extern int current_task;

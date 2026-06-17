@@ -216,7 +216,7 @@ void isr_handler(struct regs *r) {
         int user = (err & 4) != 0;
         if (user || cr2 >= 0x40000000) {
             extern void proc_exit(int code);
-            print_color("[PF] Killing process.\n", 0x0C);
+            print_color("[PF] Killing task.\n", 0x0C);
             proc_exit(-1);
         }
         print_color("[PF] at ", 0x0C);

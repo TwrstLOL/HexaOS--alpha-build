@@ -17,6 +17,7 @@ typedef struct {
 
 extern int hexafs_mounted;
 extern hexafs_tx_t hexafs_current_tx;
+extern hexafs_superblock_t sb_cache;
 
 int hexafs_mount_disk(void);
 int hexafs_write_superblock(void);
@@ -55,5 +56,11 @@ int hexafs_vfs_close(int obj_id);
 int hexafs_vfs_list(void (*cb)(const char *name, uint32_t obj_block, uint8_t type));
 void hexafs_save_all(void);
 void hexafs_load_all(void);
+
+int hexafs_cap_grant(uint32_t grantee_pid, uint32_t cap_type, uint32_t expires_tick, int delegatable);
+int hexafs_cap_check(uint32_t pid, uint32_t cap_type);
+int hexafs_cap_revoke(uint32_t grant_hash);
+int hexafs_cap_list_pid(uint32_t pid, char *out, int out_len);
+uint32_t hexafs_snap_for_pid(uint32_t pid);
 
 #endif

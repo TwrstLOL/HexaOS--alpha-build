@@ -11,6 +11,8 @@ extern int strcmp(const char *s1, const char *s2);
 extern void print_string(const char *str);
 extern void *kmalloc(size_t size);
 extern int find_form(const char *name);
+extern void itoa(int num, char *str, int base);
+extern volatile uint32_t system_ticks;
 
 extern hexafs_superblock_t sb_cache;
 extern int form_count;
@@ -207,4 +209,101 @@ void hexafs_load_all(void) {
         }
         form_count++;
     }
+}
+
+static uint32_t cap_grant_storage[32];
+static int cap_grant_count = 0;
+
+int hexafs_cap_grant(uint32_t grantee_pid, uint32_t cap_type, uint32_t expires_tick, int delegatable) {
+    if (cap_grant_count >= 32) return -1;
+    if (!hexafs_current_tx.active) return -1;
+    uint32_t grant_block = hexafs_object_alloc(HEXAFS_CAPABILITY);
+    if (!grant_block) return -1;
+    cap_grant_t grant;
+    memset(&grant, 0, sizeof(grant));
+    grant.cap_type = cap_type;
+    grant.grantee_snap = hexafs_snap_for_pid(grantee_pid);
+    grant.grantor_snap = sb_cache.root_snap_block;
+    grant.expires_tick = expires_tick;
+    grant.delegatable = delegatable ? 1 : 0;
+    grant.grant_block_hash = hexafs_content_hash(&grant, sizeof(grant));
+    if (!hexafs_object_write_data(grant_block, &grant, sizeof(grant))) {
+        hexafs_free_block(grant_block);
+        return -1;
+    }
+    cap_grant_storage[cap_grant_count++] = grant_block;
+    return (int)grant_block;
+}
+
+static uint32_t snap_for_pid = 0;
+
+uint32_t hexafs_snap_for_pid(uint32_t pid) {
+    (void)pid;
+    return sb_cache.root_snap_block;
+}
+
+void hexafs_set_pid_snap(uint32_t pid, uint32_t snap_block) {
+    (void)pid;
+    snap_for_pid = snap_block;
+}
+
+int hexafs_cap_check(uint32_t pid, uint32_t cap_type) {
+    if (pid == 0) return 1;
+    for (int i = 0; i < cap_grant_count; i++) {
+        uint32_t block = cap_grant_storage[i];
+        if (!block) continue;
+        hexafs_object_t obj;
+        if (!hexafs_block_read(block, &obj)) continue;
+        if ((obj.magic & 0xFFFFFF00) != HEXAFS_OBJ_MAGIC_BASE) continue;
+        if (obj.type != HEXAFS_CAPABILITY) continue;
+        uint8_t data[128];
+        uint32_t dsz = sizeof(data);
+        uint8_t dtype;
+        if (!hexafs_object_read_data(block, data, &dsz, &dtype)) continue;
+        if (dsz < sizeof(cap_grant_t)) continue;
+        cap_grant_t *grant = (cap_grant_t *)data;
+        if (grant->cap_type == cap_type || cap_type == 0) {
+            uint32_t pid_snap = hexafs_snap_for_pid(pid);
+            if (!pid_snap) return 1;
+            if (grant->expires_tick == 0 || system_ticks < grant->expires_tick)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+int hexafs_cap_revoke(uint32_t grant_hash) {
+    (void)grant_hash;
+    return -1;
+}
+
+int hexafs_cap_list_pid(uint32_t pid, char *out, int out_len) {
+    int pos = 0;
+    char buf[16];
+    const char *pre = "Caps for PID ";
+    for (int i = 0; pre[i] && pos < out_len - 1; i++) out[pos++] = pre[i];
+    itoa((int)pid, buf, 10);
+    for (int i = 0; buf[i] && pos < out_len - 1; i++) out[pos++] = buf[i];
+    out[pos++] = ':';
+    out[pos++] = '\n';
+    for (int i = 0; i < cap_grant_count; i++) {
+        uint32_t block = cap_grant_storage[i];
+        if (!block) continue;
+        uint8_t data[128];
+        uint32_t dsz = sizeof(data);
+        uint8_t dtype;
+        if (!hexafs_object_read_data(block, data, &dsz, &dtype)) continue;
+        if (dsz < sizeof(cap_grant_t)) continue;
+        cap_grant_t *grant = (cap_grant_t *)data;
+        itoa(grant->cap_type, buf, 16);
+        out[pos++] = ' ';
+        out[pos++] = '0';
+        out[pos++] = 'x';
+        for (int j = 0; buf[j] && pos < out_len - 1; j++) out[pos++] = buf[j];
+        const char *dl = grant->delegatable ? " (delegatable)" : "";
+        for (int j = 0; dl[j] && pos < out_len - 1; j++) out[pos++] = dl[j];
+        out[pos++] = '\n';
+    }
+    if (pos < out_len) out[pos] = 0;
+    return pos;
 }

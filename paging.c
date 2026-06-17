@@ -145,7 +145,7 @@ int page_fault_handler(uint32_t cr2, uint32_t err, uint32_t eip) {
     int user = (err & 4) != 0;
     (void)eip;
     if (user || cr2 >= 0x40000000) {
-        log_write_hex(LOG_LEVEL_WARN, "PF killing process: addr=", cr2);
+        log_write_hex(LOG_LEVEL_WARN, "PF killing task: addr=", cr2);
         extern void proc_exit(int code);
         proc_exit(-1);
         return 1;

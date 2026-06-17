@@ -3,12 +3,21 @@
 
 #include "types.h"
 
-#define O_RDONLY 0
-#define O_WRONLY 1
-#define O_RDWR   2
-#define O_CREAT  4
-#define O_TRUNC  8
-#define O_APPEND 16
+// Form access modes (HexaOS native)
+#define FORM_READ  0
+#define FORM_WRITE 1
+#define FORM_RDWR  2
+#define FORM_CREAT 4
+#define FORM_TRUNC 8
+#define FORM_APPEND 16
+
+// Compat aliases
+#define O_RDONLY FORM_READ
+#define O_WRONLY FORM_WRITE
+#define O_RDWR   FORM_RDWR
+#define O_CREAT  FORM_CREAT
+#define O_TRUNC  FORM_TRUNC
+#define O_APPEND FORM_APPEND
 
 #define SEEK_SET 0
 #define SEEK_CUR 1

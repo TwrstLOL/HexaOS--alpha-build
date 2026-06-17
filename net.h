@@ -44,5 +44,9 @@ int net_connection_close(int conn_id);
 int net_connection_list(char *out, int out_len);
 int net_loopback_send(const uint8_t *data, int len);
 int net_loopback_recv(uint8_t *buf, int maxlen);
+int net_history_list(char *out, int out_len);
+void net_register_observers(void);
+int net_get_interface_count(void);
+int net_get_connection_count(void);
 
 #endif

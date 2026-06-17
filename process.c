@@ -33,11 +33,20 @@ void proc_init(void) {
         tasks[i].page_dir = 0;
         tasks[i].heap_brk = 0;
         tasks[i].name[0] = 0;
+        tasks[i].event_head = 0;
+        tasks[i].event_tail = 0;
+        tasks[i].event_pending = 0;
         for (int f = 0; f < MAX_FDS; f++) {
             tasks[i].fds[f].type = 0;
             tasks[i].fds[f].ref = -1;
         }
-        // Default stdin/stdout/stderr
+        for (int e = 0; e < EVENT_QUEUE_SIZE; e++) {
+            tasks[i].event_queue[e].event_type = 0;
+            tasks[i].event_queue[e].sender_pid = 0;
+            tasks[i].event_queue[e].payload_hash = 0;
+            tasks[i].event_queue[e].timestamp = 0;
+        }
+        // Default form handles 0-2
         tasks[i].fds[0].type = 3; tasks[i].fds[0].ref = 0;
         tasks[i].fds[1].type = 3; tasks[i].fds[1].ref = 0;
         tasks[i].fds[2].type = 3; tasks[i].fds[2].ref = 0;
@@ -267,4 +276,45 @@ void schedule(struct regs *r) {
 
 void yield(void) {
     __asm__ volatile("int $0x20");
+}
+
+int process_event_send(pid_t target_pid, uint32_t event_type, uint32_t payload_hash) {
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (tasks[i].pid == target_pid && tasks[i].state != TASK_DEAD) {
+            cli();
+            int next = (tasks[i].event_head + 1) % EVENT_QUEUE_SIZE;
+            if (next == tasks[i].event_tail) { sti(); return -1; }
+            hexaos_event_t *ev = &tasks[i].event_queue[tasks[i].event_head];
+            ev->event_type = event_type;
+            ev->sender_pid = current_task >= 0 ? tasks[current_task].pid : 0;
+            ev->sender_snap = 0;
+            ev->payload_hash = payload_hash;
+            ev->timestamp = system_ticks;
+            tasks[i].event_head = next;
+            tasks[i].event_pending = 1;
+            sti();
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int process_event_poll(uint32_t event_type_mask, hexaos_event_t *out_event) {
+    cli();
+    if (tasks[current_task].event_tail == tasks[current_task].event_head) {
+        tasks[current_task].event_pending = 0;
+        sti();
+        return -1;
+    }
+    hexaos_event_t *ev = &tasks[current_task].event_queue[tasks[current_task].event_tail];
+    if (event_type_mask && !(ev->event_type & event_type_mask)) {
+        sti();
+        return -1;
+    }
+    if (out_event) *out_event = *ev;
+    tasks[current_task].event_tail = (tasks[current_task].event_tail + 1) % EVENT_QUEUE_SIZE;
+    if (tasks[current_task].event_tail == tasks[current_task].event_head)
+        tasks[current_task].event_pending = 0;
+    sti();
+    return (int)ev->event_type;
 }

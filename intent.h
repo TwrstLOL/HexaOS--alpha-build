@@ -39,5 +39,7 @@ int intent_compat_open(const char *path, int flags);
 int intent_compat_read(int fd, char *buf, int count, int pos);
 int intent_compat_write(int fd, const char *buf, int count, int pos);
 int intent_compat_stat(const char *path, void *node);
+int intent_table_active_count(void);
+void intent_list_active(char *out, int out_len);
 
 #endif

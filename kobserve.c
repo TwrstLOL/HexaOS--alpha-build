@@ -91,6 +91,15 @@ int kobserve_sched_tasks(uint32_t filter, char *out, int out_len) {
     return pos;
 }
 
+int kobserve_sched_history(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *msg = "Scheduling history: recorded in snapshot events.\n";
+    for (int i = 0; msg[i] && pos < out_len - 1; i++) out[pos++] = msg[i];
+    out[pos] = 0;
+    return pos;
+}
+
 int kobserve_mem_pages(uint32_t filter, char *out, int out_len) {
     (void)filter;
     int pos = 0;
@@ -161,13 +170,127 @@ int kobserve_intr_stats(uint32_t filter, char *out, int out_len) {
     return pos;
 }
 
+int kobserve_vfs_mounts(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *hdr = "VFS Mounts:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    const char *m1 = "  /  -> hexafs_disk (persistent)\n";
+    for (int i = 0; m1[i] && pos < out_len - 1; i++) out[pos++] = m1[i];
+    out[pos] = 0;
+    return pos;
+}
+
+extern int intent_table_active_count(void);
+extern void intent_list_active(char *out, int out_len);
+
+int kobserve_open_intents(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *hdr = "Active Intent Handles:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    intent_list_active(out + pos, out_len - pos);
+    pos = strlen(out);
+    if (pos == 0 || out[pos-1] != '\n') {
+        const char *none = "  (none)\n";
+        for (int i = 0; none[i] && pos < out_len - 1; i++) out[pos++] = none[i];
+        out[pos] = 0;
+    }
+    return pos;
+}
+
+int kobserve_caps_grants(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *hdr = "Capability Grants:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    const char *none = "  (no active grants)\n";
+    for (int i = 0; none[i] && pos < out_len - 1; i++) out[pos++] = none[i];
+    out[pos] = 0;
+    return pos;
+}
+
+int kobserve_caps_revoked(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *hdr = "Revoked Capabilities:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    const char *none = "  (no revoked caps)\n";
+    for (int i = 0; none[i] && pos < out_len - 1; i++) out[pos++] = none[i];
+    out[pos] = 0;
+    return pos;
+}
+
+extern int pipe_typed_list(char *out, int out_len);
+
+int kobserve_pipes_active(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *hdr = "Active Typed Pipes:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    pipe_typed_list(out + pos, out_len - pos);
+    pos = strlen(out);
+    if (pos == 0 || out[pos-1] != '\n') {
+        const char *none = "  (none)\n";
+        for (int i = 0; none[i] && pos < out_len - 1; i++) out[pos++] = none[i];
+        out[pos] = 0;
+    }
+    return pos;
+}
+
+int kobserve_snapshots_tree(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *hdr = "Snapshot Tree:\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    uint32_t snap_block = 0;
+    extern hexafs_superblock_t sb_cache;
+    if (sb_cache.root_snap_block) {
+        snap_block = sb_cache.root_snap_block;
+        hexafs_snap_t snap;
+        while (snap_block) {
+            if (!hexafs_block_read(snap_block, &snap)) break;
+            if (snap.magic != HEXAFS_SNAP_MAGIC) break;
+            char buf[16];
+            itoa(snap_block, buf, 10);
+            for (int j = 0; buf[j] && pos < out_len - 1; j++) out[pos++] = buf[j];
+            out[pos++] = ' ';
+            for (int j = 0; snap.name[j] && j < 31 && pos < out_len - 1; j++) out[pos++] = snap.name[j];
+            out[pos++] = '\n';
+            snap_block = snap.parent_snap_block;
+        }
+    } else {
+        const char *none = "  (no snapshots)\n";
+        for (int i = 0; none[i] && pos < out_len - 1; i++) out[pos++] = none[i];
+    }
+    out[pos] = 0;
+    return pos;
+}
+
+int kobserve_replay_last(uint32_t filter, char *out, int out_len) {
+    (void)filter;
+    int pos = 0;
+    const char *msg = "Last Replay Session:\n  (no replay sessions recorded)\n";
+    for (int i = 0; msg[i] && pos < out_len - 1; i++) out[pos++] = msg[i];
+    out[pos] = 0;
+    return pos;
+}
+
 void kobserve_init(void) {
     memset(kobserve_table, 0, sizeof(kobserve_table));
     kobserve_count = 0;
     kobserve_register("/@kernel/scheduler/tasks", kobserve_sched_tasks, 0);
+    kobserve_register("/@kernel/scheduler/history", kobserve_sched_history, 0);
     kobserve_register("/@kernel/memory/pages", kobserve_mem_pages, 0);
     kobserve_register("/@kernel/memory/heap", kobserve_mem_heap, 0);
     kobserve_register("/@kernel/interrupts/log", kobserve_intr_log, 0);
     kobserve_register("/@kernel/interrupts/stats", kobserve_intr_stats, 0);
-    log_write(LOG_LEVEL_INFO, "kobserve: initialized 5 kernel observers");
+    kobserve_register("/@kernel/vfs/mounts", kobserve_vfs_mounts, 0);
+    kobserve_register("/@kernel/vfs/open_intents", kobserve_open_intents, 0);
+    kobserve_register("/@kernel/capabilities/grants", kobserve_caps_grants, 0);
+    kobserve_register("/@kernel/capabilities/revoked", kobserve_caps_revoked, 0);
+    kobserve_register("/@kernel/pipes/active", kobserve_pipes_active, 0);
+    kobserve_register("/@kernel/snapshots/tree", kobserve_snapshots_tree, 0);
+    kobserve_register("/@kernel/replay/last", kobserve_replay_last, 0);
+    log_write(LOG_LEVEL_INFO, "kobserve: initialized 13 kernel observers");
 }

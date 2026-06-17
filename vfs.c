@@ -56,19 +56,19 @@ int vfs_init(void) {
 int vfs_open(const char *path, int flags) {
     int idx = find_form(path);
     if (idx < 0) {
-        if (!(flags & O_CREAT)) return -1;
+        if (!(flags & FORM_CREAT)) return -1;
         // Create form via mkform
         extern void cmd_mkform(const char *name);
         cmd_mkform(path);
         idx = find_form(path);
         if (idx < 0) return -1;
     }
-    if (check_perm(idx, flags & O_WRONLY)) return -1;
+    if (check_perm(idx, flags & FORM_WRITE)) return -1;
     int fd = vfs_fd_alloc(current_task);
     if (fd < 0) return -1;
     vfs_fds[fd].type = 1;
     vfs_fds[fd].ref = idx;
-    vfs_fds[fd].pos = (flags & O_APPEND) ? 0x7FFFFFFF : 0;
+    vfs_fds[fd].pos = (flags & FORM_APPEND) ? 0x7FFFFFFF : 0;
     vfs_fds[fd].flags = flags;
     return fd;
 }

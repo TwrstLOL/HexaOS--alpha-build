@@ -19,7 +19,7 @@
 #define SYS_PIPE       12
 #define SYS_DUP        13
 #define SYS_GETPPID    14
-#define SYS_UNAME      15
+#define SYS_SYSNAME    15
 #define SYS_LSEEK      16
 #define SYS_GETCWD     17
 #define SYS_STAT       18

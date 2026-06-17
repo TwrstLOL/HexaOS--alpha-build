@@ -1,6 +1,6 @@
 # HexaOS — Version 7.0 "Diamond"
 
-> **v7.0 is here!** 8 new kernel subsystems, a transactional filesystem, capability-gated I/O, network stack, boot policy with rollback, HEX binary format, kernel observability, and syscall replay — all under the Diamond codename.
+> **v7.0 is here!** 8 new kernel subsystems, a transactional form store, capability-gated I/O, network stack, boot policy with rollback, HEX binary format, kernel observability, and syscall replay — all under the Diamond codename.
 
 A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a floppy disk image via QEMU.
 
@@ -8,7 +8,7 @@ A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a f
 
 ### Version Bump
 - **Version** — 6.3 → 7.0 "Diamond"
-- ALL banners, help strings, neofetch, login screen, uname, sysinfo, about, logo updated
+- ALL banners, help strings, neofetch, login screen, sysname, sysinfo, about, logo updated
 
 ### 8 New Kernel Subsystems
 
@@ -16,7 +16,7 @@ A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a f
 |-----------|-------|-------------|
 | **HEX Binary Format** | `hex.c`, `hex.h` | Capability-wrapped ELF container (magic `0x48455841`) with input/output schema hashes, dependency hashes, and checksum validation |
 | **Boot Policy** | `boot_policy.c`, `boot_policy.h` | Staged boot sequencer (8 stages: hardware, drivers, services, shell) with snapshot tracking and automatic rollback on failure |
-| **HEXAFS (VFS Layer)** | `hexafs.c`, `hexafs.h` | Transactional filesystem with abstraction directories, snapshot management, content-addressed object storage, atomic updates |
+| **HEXAFS (VFS Layer)** | `hexafs.c`, `hexafs.h` | Transactional form store with abstraction dims, snapshot management, content-addressed object storage, atomic updates |
 | **HEXAFS (Disk Driver)** | `hexafs_disk.c`, `hexafs_disk.h` | Block-level layout on 4096-sector (2 MB) disk: superblock, bitmap allocator, CRC-verified object store, snapshot chain with write-ahead journaling |
 | **Intent System** | `intent.c`, `intent.h` | Declarative capability-based I/O (CONSUME/PRODUCE/OBSERVE/TRANSFORM) replacing traditional FDs, with compatibility shims for legacy VFS |
 | **Kernel Observers** | `kobserve.c`, `kobserve.h` | In-kernel observability via virtual paths (`/@kernel/scheduler/tasks`, `/@kernel/memory/pages`, `/@kernel/memory/heap`, `/@kernel/interrupts/log`, `/@kernel/interrupts/stats`) |
@@ -34,10 +34,10 @@ Diamond:   kstat, netstat, ifconfig, netlog, netrollback, replay, bootlog,
 ### New Syscalls (7 added, now 28 total)
 - `SYS_INTENT` (21) — Register a data intent
 - `SYS_FULFILL` (22) — Fulfill/provide data for an intent
-- `SYS_DIFF` (23) — Object version diff
+- `SYS_DIFF` (23) — Form version diff
 - `SYS_REPLAY` (24) — Execute a replay
 - `SYS_PIPE_TYPED` (25) — Create a typed pipe
-- `SYS_EVENT_SEND` (26) — Send an inter-process event
+- `SYS_EVENT_SEND` (26) — Send an inter-task event
 - `SYS_EVENT_POLL` (27) — Poll for events
 
 ### Other Changes
@@ -48,13 +48,13 @@ Diamond:   kstat, netstat, ifconfig, netlog, netrollback, replay, bootlog,
 ### Existing Commands (110+ total)
 ```
 clock     Live RTC clock display (updates in real-time)
-free      Memory statistics (PMM pages, tasks, files, users)
+free      Memory statistics (PMM pages, tasks, forms, users)
 ping      Real ICMP ping via RTL8139 NIC (e.g. ping 10.0.2.2)
 factor    Prime factorization of any number
-hexdump   Hex + ASCII dump of file content
-du        Disk usage by file
-rev       Reverse file content
-shasum    DJB2 hash of file
+hexdump   Hex + ASCII dump of form content
+du        Disk usage by form
+rev       Reverse form content
+shasum    DJB2 hash of form
 sysinfo   Quick system overview
 watch     Repeat a command every ~0.5s
 tetris    Full Tetris game with WASD controls
@@ -81,7 +81,7 @@ tetris    Full Tetris game with WASD controls
 - **GPF** (vector 13) logs EIP + error code, returns
 - Other exceptions log message + EIP and return
 
-### Process & Scheduling
+### Task & Scheduling
 - **Task struct** with PID, kernel stack, register save area, state machine
 - **Round-Robin Scheduler** — called from timer IRQ, cycles through ready tasks
 - **Context Switch** — direct stack-switch via `mov %0, %%esp; add $16; popa; iret`
@@ -91,12 +91,12 @@ tetris    Full Tetris game with WASD controls
 - **Ring 3 code segment** (0x18) and **Ring 3 data segment** (0x20) in GDT
 - **Task State Segment (TSS)** with ring 0 stack pointer for syscall/interrupt entry
 - **Syscall mechanism** via `int $0x80` (DPL=3 gate, accessible from user code)
-- **28 syscalls** defined: print, read, exit, ticks, open, close, write, getpid, sleep, brk, waitpid, kill, pipe, dup, getppid, uname, getcwd, stat, lseek, mmap, munmap, intent, fulfill, diff, replay, pipe_typed, event_send, event_poll
+- **28 syscalls** defined: print, read, exit, ticks, open, close, write, getpid, sleep, brk, waitpid, kill, pipe, dup, getppid, sysname, getcwd, stat, lseek, mmap, munmap, intent, fulfill, diff, replay, pipe_typed, event_send, event_poll
 
 ### Persistence
 - ATA PIO block device driver (primary channel, LBA28 addressing)
-- Read/write disk sectors for persistent file storage
-- Multi-user file system with permissions (owner/group/other, rwx bits)
+- Read/write disk sectors for persistent form storage
+- Multi-user form system with permissions (hex capability mode)
 - Transactional HEXAFS layer with write-ahead journaling and snapshot chains
 
 ### Shell & Commands (110+)
@@ -105,11 +105,10 @@ System:   help, clear, reboot, halt, panic, sleep, shutdown
 Hardware: date, cpuinfo, lspci, neofetch, outb, inb, sysinfo
 Strings:  echo, len, hex, reverse, tolower, toupper, morse, tr, seq
 Apps:     calc, rand, ascii, palette, matrix, guess, ping, factor
-Files:    touch, cat, ls, rm, write, append, edit, mv, cp, head, tail,
-          grep, find, diff, uniq, chmod, chown, pwd, mkdir, hexdump,
-          du, rev, shasum
+Forms:    mkform, view, list, delete, write, append, edit, move, copy,
+          setmode, setowner, dimpath, makedim, hexdump, du, rev, shasum
 Users:    login, logout, useradd, passwd, whoami, id, diese, who
-Unix:     alias, unalias, ps, kill, basename, dirname, sort, env, tee,
+Utils:    alias, unalias, ps, kill, basename, dirname, sort, env, tee,
           watch, clock, free
 Diamond:  kstat, netstat, ifconfig, netlog, netrollback, replay, bootlog,
           bootpolicy, setfallback, caps, grantcap, revokecap, hexpack,
@@ -117,7 +116,7 @@ Diamond:  kstat, netstat, ifconfig, netlog, netrollback, replay, bootlog,
 Fun:      banner, fortune, yes, cowsay, cmatrix, logo, sl, morse,
           dice, 8ball, russian, insult, excuse, compliment, hack, bsod
 Games:    snake, tictactoe, hangman, memory, tetris
-Info:     uname, uptime, about, mem, beep, history, which, dmesg
+Info:     sysname, uptime, about, mem, beep, history, which, dmesg
 Pkg:      ayo list/add/remove/update
 ```
 
@@ -127,7 +126,7 @@ Pkg:      ayo list/add/remove/update
 ┌──────────────────────────────────────────────────────────┐
 │                    HEXA OS 7.0 Diamond                    │
 ├─────────────┬───────────┬───────────┬────────────────────┤
-│  Interrupts │  Memory   │  Process  │  New Subsystems    │
+│  Interrupts │  Memory   │  Tasks    │  New Subsystems    │
 │  ┌───────┐  │ ┌──────┐  │ ┌────────┐│ ┌──────────┐      │
 │  │ IDT   │  │ │ PMM  │  │ │ Sched  ││ │ HEX      │      │
 │  │ PIC   │  │ │ Paging│  │ │ Tasks  ││ │ Intent   │      │
@@ -164,7 +163,7 @@ make run
 
 This produces:
 - `os.img` — floppy disk image (1.44 MB) containing bootloader + kernel
-- `storage.img` — ATA hard disk image (2 MB) for persistent file storage (HEXAFS)
+- `storage.img` — ATA hard disk image (2 MB) for persistent form storage (HEXAFS)
 - `kernel.elf` — ELF binary for debugging (symbols in `link.map`)
 
 Boots in QEMU with:
@@ -181,7 +180,7 @@ qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic
 5. **User Task**: Created with PID=1, enters infinite syscall loop (`_user_entry`)
 6. **Shell Task**: `kernel_main` runs the shell/CLI loop (round-robin with user task)
 7. **Round-Robin**: 2 tasks (user + shell) cycle at 100Hz via timer IRQ
-8. **Userspace**: Loads user database + file system from ATA disk, presents login prompt
+8. **Userspace**: Loads user database + form system from ATA disk, presents login prompt
 
 ## Default Users
 
@@ -191,17 +190,17 @@ qemu-system-i386 -fda os.img -hda storage.img -boot order=a -nographic
 
 Create additional users with `useradd <name>` (root only) or type `new` at the login prompt.
 
-## File System
+## Form System
 
-- HEXAFS transactional filesystem on ATA disk image (4096 sectors, 2 MB)
+- HEXAFS transactional form store on ATA disk image (4096 sectors, 2 MB)
 - Superblock with magic, bitmap allocator, CRC-verified object store
 - Snapshot chains with linked-list structure for versioned rollback
-- Abstraction directories (named containers)
+- Abstraction dims (named containers)
 - Content-addressed object storage with DJB2 hashing
 - Write-ahead journal for crash-safe metadata updates
-- 64 max files, dynamic content allocation via kmalloc
-- Permission bits: owner/group/other with rwx (e.g., `rw-r--r--`)
-- Commands: `touch`, `cat`, `ls`, `rm`, `write`, `append`, `edit`, `mv`, `cp`, `chmod`, `chown`, `hexdump`, `du`, `rev`, `shasum`
+- 64 max forms, dynamic content allocation via kmalloc
+- Permission bits: hex mode (e.g., `0x01A4`)
+- Commands: `mkform`, `view`, `list`, `delete`, `write`, `append`, `edit`, `move`, `copy`, `setmode`, `setowner`, `hexdump`, `du`, `rev`, `shasum`
 
 ## Package Manager (`ayo`)
 
@@ -209,7 +208,7 @@ Create additional users with `useradd <name>` (root only) or type `new` at the l
 ayo list       — list available packages [I]=installed
 ayo add <pkg> — install package (root only)
 ayo remove    — uninstall package (root only)
-ayo update    — refresh installed package files
+ayo update    — refresh installed package forms
 ```
 
 Packages: `games`, `docs`, `fun`, `dev`, `cheatsheet`, `tools`, `net`, `math`, `sysadmin`, `security`, `media`, `productivity`, `science`, `lang`, `puzzle`, `adventure`, `retro`, `algorithms`, `crypto`, `music`, `philosophy`, `geography`
@@ -244,7 +243,7 @@ Example: `ayo add games` enables Snake, Tic-Tac-Toe, Hangman, Memory, and Tetris
 HexaOS-alpha-build/
 ├── boot_entry.asm      # Real-mode bootloader (510 bytes + MBR)
 ├── kernel_entry.asm    # ISR stubs, IRQ stubs, context switch, TSS, user entry
-├── hexa.c              # Shell, 110+ commands, file system, user management, ATA driver, Tetris
+├── hexa.c              # Shell, 110+ commands, form system, user management, ATA driver, Tetris
 ├── interrupts.c        # IDT setup, PIC remap, PIT init, exception handlers, keyboard IRQ
 ├── interrupts.h        # IDT/PIC/PIT declarations, regs struct
 ├── paging.c            # PMM bitmap, page tables, heap allocator
@@ -255,7 +254,7 @@ HexaOS-alpha-build/
 ├── syscall.h           # Syscall numbers
 ├── vfs.c               # Virtual File System layer (forms/dims)
 ├── vfs.h               # VFS declarations
-├── pipe.c              # Inter-process pipes
+├── pipe.c              # Inter-task pipes
 ├── pipe.h              # Pipe declarations
 ├── sync.c              # Mutex and semaphore
 ├── sync.h              # Sync declarations
@@ -269,7 +268,7 @@ HexaOS-alpha-build/
 ├── boot_policy.h       # Boot policy declarations
 ├── hex.c               # HEX binary container format
 ├── hex.h               # HEX format declarations
-├── hexafs.c            # HEXAFS transactional filesystem (VFS layer)
+├── hexafs.c            # HEXAFS transactional form store (VFS layer)
 ├── hexafs.h            # HEXAFS VFS declarations
 ├── hexafs_disk.c       # HEXAFS block-level disk driver
 ├── hexafs_disk.h       # HEXAFS disk declarations
@@ -308,7 +307,7 @@ HexaOS-alpha-build/
 - **Interrupts**: 8259 PIC, 100Hz PIT timer, PS/2 keyboard on IRQ1
 - **Scheduling**: Round-robin, invoked from timer IRQ, saves/restores full register context
 - **Syscall**: Software interrupt 0x80, DPL=3 for user-mode access, 28 syscalls
-- **VFS**: Form/dim terminology, file descriptors, pipes, console I/O, stat, permission gating
+- **VFS**: Form/dim terminology, intent handles, pipes, console I/O, stat, permission gating
 - **Storage**: ATA PIO (LBA28), primary channel, polling mode, HEXAFS transactional layer
 - **Intent I/O**: Capability-gated declarative I/O replacing raw FDs
 - **Observability**: Virtual `/@kernel/...` paths for runtime kernel introspection
@@ -321,6 +320,6 @@ HexaOS-alpha-build/
 - **QEMU only.** The ATA driver targets QEMU's emulated disk. Real hardware untested.
 - **Minimal security.** Passwords use a simple hash (djb2 variant). No encryption.
 - **Games require packages.** Run `ayo add games` as root to enable games.
-- **No journaling.** File system writes are direct to disk. Power loss = corruption.
+- **No journaling.** Form store writes are direct to disk. Power loss = corruption.
 - **Single-core only.** No SMP support.
 - **Use at your own risk.** No guarantees of correctness, safety, or stability.

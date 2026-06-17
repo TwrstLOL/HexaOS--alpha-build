@@ -593,7 +593,7 @@ void cmd_help() {
   print_string(" Apps:    calc, rand, ascii, palette, matrix, guess\n");
   print_string("          exec\n");
   print_string(" Forms:   mkform, view, list, delete, write, append, edit\n");
-  print_string("          move, copy, dimpath, makedim\n");
+  print_string("          move, copy, dimpath, makedim, setmode, setowner\n");
   print_string(" Users:   login, logout, useradd, passwd, whoami\n");
   print_string("          diese\n");
   if (find_form(".fun") >= 0)
@@ -604,7 +604,7 @@ void cmd_help() {
     print_string(" Games:   snake, tictactoe, hangman, memory\n");
   if (find_form(".games") >= 0)
     print_string("          tetris\n");
-  print_string(" Info:    uname, uptime, about, mem, beep, history\n");
+  print_string(" Info:    sysname, uptime, about, mem, beep, history\n");
   print_string("          dmesg, free, sysinfo\n");
   print_string(" Diamond: kstat, netstat, ifconfig, netlog, netrollback\n");
   print_string("          replay, bootlog, bootpolicy, setfallback, caps\n");
@@ -891,7 +891,7 @@ void cmd_panic(void) {
   const char *scan[] = {
     "  [OK]  Boot sector: intact",
     "  [OK]  Kernel image: checksum valid",
-    "  [!!]  form_table[3]: invalid inode",
+    "  [!!]  form_table[3]: invalid form block",
     "  [!!]  Block 0x47: CRC mismatch",
     "  [OK]  Page directory: intact",
     "  [!!]  GDT entry 5: segment limit exceeded",
@@ -1581,7 +1581,7 @@ void do_login(void) {
   }
 }
 
-// ---- File System ----
+// ---- Form System ----
 int find_form(const char *name) {
   for (int i = 0; i < form_count; i++)
     if (strcmp(form_table[i].name, name) == 0) return i;
@@ -1605,15 +1605,18 @@ void cmd_mkform(const char *name) {
 }
 
 static void print_mode(uint16_t mode) {
-  put_char(mode & PERM_OWNER_R ? 'r' : '-', 0x0F);
-  put_char(mode & PERM_OWNER_W ? 'w' : '-', 0x0F);
-  put_char(mode & PERM_OWNER_X ? 'x' : '-', 0x0F);
-  put_char(mode & PERM_GRP_R   ? 'r' : '-', 0x0F);
-  put_char(mode & PERM_GRP_W   ? 'w' : '-', 0x0F);
-  put_char(mode & PERM_GRP_X   ? 'x' : '-', 0x0F);
-  put_char(mode & PERM_OTH_R   ? 'r' : '-', 0x0F);
-  put_char(mode & PERM_OTH_W   ? 'w' : '-', 0x0F);
-  put_char(mode & PERM_OTH_X   ? 'x' : '-', 0x0F);
+  char buf[8];
+  buf[0] = '0';
+  buf[1] = 'x';
+  uint8_t hi = (mode >> 8) & 0xFF;
+  uint8_t lo = mode & 0xFF;
+  const char *hex = "0123456789ABCDEF";
+  buf[2] = hex[(hi >> 4) & 0xF];
+  buf[3] = hex[hi & 0xF];
+  buf[4] = hex[(lo >> 4) & 0xF];
+  buf[5] = hex[lo & 0xF];
+  buf[6] = 0;
+  print_string(buf);
 }
 
 void cmd_list(void) {
@@ -1794,45 +1797,29 @@ void cmd_logout(void) {
   do_login();
 }
 
-// ---- chmod / chown ----
-void cmd_chmod(const char *args) {
+// ---- setmode / setowner ----
+void cmd_setmode(const char *args) {
   char mode_str[16]={0}, fname[32]={0};
   int i=0,j=0;
   while(args[i]&&args[i]!=' '&&j<15){mode_str[j++]=args[i++];}
   while(args[i]==' '){i++;} j=0;
   while(args[i]&&j<31){fname[j++]=args[i++];}
-  if(!mode_str[0]||!fname[0]){print_string("Usage: chmod <mode> <form>\n");return;}
+  if(!mode_str[0]||!fname[0]){print_string("Usage: setmode <hex_mode> <form>\n");return;}
   int idx=find_form(fname);
   if(idx<0){print_string("Not found.\n");return;}
   if(u_cur!=0&&form_table[idx].owner!=u_cur){print_color("Permission denied.\n",0x0C);return;}
-  uint16_t newmode=0;
-  int octal=atoi(mode_str);
-  if(octal>0&&octal<4096) { newmode=octal; }
-  else {
-    // Parse rwx-style string (e.g. "rw-r--r--")
-    if(strlen(mode_str)>=9) {
-      if(mode_str[0]=='r')newmode|=PERM_OWNER_R;
-      if(mode_str[1]=='w')newmode|=PERM_OWNER_W;
-      if(mode_str[2]=='x')newmode|=PERM_OWNER_X;
-      if(mode_str[3]=='r')newmode|=PERM_GRP_R;
-      if(mode_str[4]=='w')newmode|=PERM_GRP_W;
-      if(mode_str[5]=='x')newmode|=PERM_GRP_X;
-      if(mode_str[6]=='r')newmode|=PERM_OTH_R;
-      if(mode_str[7]=='w')newmode|=PERM_OTH_W;
-      if(mode_str[8]=='x')newmode|=PERM_OTH_X;
-    } else { print_string("Bad mode.\n"); return; }
-  }
-  form_table[idx].mode=newmode;
+  uint16_t newmode = (uint16_t)atoi(mode_str);
+  form_table[idx].mode = newmode;
   print_string("Mode changed.\n");
 }
 
-void cmd_chown(const char *args) {
+void cmd_setowner(const char *args) {
   char owner_str[16]={0}, fname[32]={0};
   int i=0,j=0;
   while(args[i]&&args[i]!=' '&&j<15){owner_str[j++]=args[i++];}
   while(args[i]==' '){i++;} j=0;
   while(args[i]&&j<31){fname[j++]=args[i++];}
-  if(!owner_str[0]||!fname[0]){print_string("Usage: chown <user> <form>\n");return;}
+  if(!owner_str[0]||!fname[0]){print_string("Usage: setowner <user> <form>\n");return;}
   if(u_cur!=0){print_color("Only root.\n",0x0C);return;}
   int nu=-1;
   for(int k=0;k<u_count;k++)if(strcmp(u_table[k].name,owner_str)==0){nu=k;break;}
@@ -1940,7 +1927,7 @@ void cmd_hist(void) {
 
 
 
-// ---- Unix-Style Commands ----
+// ---- Shell Utilities ----
 static int alias_count = 0;
 static struct { char name[16]; char cmd[64]; } alias_table[16];
 
@@ -1960,8 +1947,8 @@ void cmd_dimpath(void) {
 }
 
 void cmd_makedim(const char *name) {
-  if(!name[0]){print_string("Usage: mkdir <dirname>\n");return;}
-  // store as directory with trailing /
+  if(!name[0]){print_string("Usage: makedim <dimname>\n");return;}
+  // store as dim with trailing /
   char dname[NAME_MAX];
   strcpy(dname,name);
   int len=strlen(dname);
@@ -2427,11 +2414,11 @@ static struct pkg_entry pkg_db[] = {
     {"dmesg.txt","dmesg: kernel ring buffer. Boot messages here."},
     {"uptime.txt","uptime: system uptime in ticks"},
     {"iostat.txt","iostat: ATA disk I/O stats (simulated)."},
-    {"top.txt","top: system processes. Only shell process running."},
+    {"top.txt","tasks: system tasks. Only shell task running."},
   }, 5},
   {"security", {
     {"passwd.txt","passwd: change your password. New: hashed storage!"},
-    {"perm.txt","Permissions: rwx rwx rwx. Use chmod + chown."},
+    {"perm.txt","Permissions: hex mode. Use setmode + setowner."},
     {"root.txt","Root has full access. Use 'diese <cmd>' for root."},
     {"audit.txt","Log: all changes are persisted to disk image."},
   }, 4},
@@ -2459,7 +2446,7 @@ static struct pkg_entry pkg_db[] = {
     {"hello_py.txt","Python: print('Hello, HEXA!')"},
     {"hello_asm.txt","x86 ASM: mov eax, 1; int 0x80"},
     {"hello_js.txt","JS: console.log('Hello from HEXA!');"},
-    {"bash.txt","Bash: echo 'Hello $USER'"},
+    {"shell.txt","Shell: echo 'Hello HEXA!'"},
   }, 5},
   {"puzzle", {
     {"sudoku.txt","Sudoku: 9x9 grid. Solve with logic."},
@@ -2790,18 +2777,30 @@ void cmd_setfallback(const char *args) {
 }
 
 void cmd_caps(const char *args) {
-  if (args[0]) {
-    print_string("Capabilities for PID: ");
-    print_string(args);
-    print_string("\n");
-  } else {
-    print_string("Current process capabilities: root (all)\n");
-  }
+  char buf[512];
+  int pid = current_task >= 0 ? tasks[current_task].pid : 0;
+  if (args[0]) pid = atoi(args);
+  hexafs_cap_list_pid((uint32_t)pid, buf, sizeof(buf));
+  print_string(buf);
 }
 
 void cmd_grantcap(const char *args) {
-  (void)args;
-  print_string("grantcap: capability grants require authority cap (stub)\n");
+  char pid_s[8] = {0}, cap_s[16] = {0};
+  int i = 0, j = 0;
+  while (args[i] && args[i] != ' ' && i < 7) { pid_s[i] = args[i]; i++; }
+  while (args[i] == ' ') i++;
+  while (args[i] && j < 15) { cap_s[j++] = args[i++]; }
+  if (!pid_s[0] || !cap_s[0]) {
+    print_string("Usage: grantcap <pid> <cap_type>\n");
+    return;
+  }
+  uint32_t ct = (uint32_t)atoi(cap_s);
+  int ret = hexafs_cap_grant((uint32_t)atoi(pid_s), ct, 0, 1);
+  if (ret >= 0) {
+    print_string("Capability granted.\n");
+  } else {
+    print_string("Grant failed.\n");
+  }
 }
 
 void cmd_revokecap(const char *args) {
@@ -2820,9 +2819,28 @@ void cmd_hexpack(const char *args) {
 
 void cmd_inbox(const char *args) {
   if (!args[0]) { print_string("Usage: inbox <pid>\n"); return; }
-  print_string("Inbox for PID ");
-  print_string(args);
-  print_string(": no pending events\n");
+  pid_t pid = (pid_t)atoi(args);
+  int found = 0;
+  for (int i = 0; i < MAX_TASKS; i++) {
+    if (tasks[i].pid == pid && tasks[i].state != TASK_DEAD) {
+      int count = 0;
+      int t = tasks[i].event_tail;
+      while (t != tasks[i].event_head) {
+        count++;
+        t = (t + 1) % EVENT_QUEUE_SIZE;
+      }
+      char buf[16];
+      print_string("Inbox for PID ");
+      print_string(args);
+      print_string(": ");
+      itoa(count, buf, 10);
+      print_string(buf);
+      print_string(" pending events\n");
+      found = 1;
+      break;
+    }
+  }
+  if (!found) print_string("Process not found.\n");
 }
 
 void cmd_sendevent(const char *args) {
@@ -2832,20 +2850,58 @@ void cmd_sendevent(const char *args) {
   while (args[i] == ' ') i++;
   while (args[i] && j < 7) { type_s[j++] = args[i++]; }
   if (!pid_s[0] || !type_s[0]) { print_string("Usage: sendevent <pid> <type>\n"); return; }
-  print_string("Event sent to PID ");
-  print_string(pid_s);
-  print_string("\n");
+  pid_t tpid = (pid_t)atoi(pid_s);
+  uint32_t etype = (uint32_t)atoi(type_s);
+  int ret = process_event_send(tpid, etype, 0);
+  if (ret == 0) {
+    print_string("Event sent to PID ");
+    print_string(pid_s);
+    print_string("\n");
+  } else {
+    print_string("Failed to send event (queue full or PID not found)\n");
+  }
 }
 
 void cmd_pipes_list(void) {
-  print_string("Active typed pipes: none\n");
+  char buf[512];
+  int n = pipe_typed_list(buf, sizeof(buf));
+  if (n > 0) {
+    print_string("Active Typed Pipes:\n  ID SCHEMA  PROD CONS\n");
+    print_string(buf);
+  } else {
+    print_string("Active typed pipes: none\n");
+  }
 }
 
 void cmd_timels(const char *args) {
   if (!args[0]) { print_string("Usage: timels <path>\n"); return; }
   print_string("Versions of ");
   print_string(args);
-  print_string(":\n  live (current)\n");
+  print_string(" across snapshots:\n");
+  uint32_t snap_block = sb_cache.root_snap_block;
+  int found = 0;
+  while (snap_block) {
+    hexafs_snap_t snap;
+    if (!hexafs_block_read(snap_block, &snap)) break;
+    if (snap.magic != HEXAFS_SNAP_MAGIC) break;
+    uint32_t abs_block = snap.root_object_block;
+    if (abs_block) {
+      uint32_t obj_block = 0;
+      uint8_t otype;
+      if (hexafs_abstraction_find(abs_block, args, &obj_block, &otype)) {
+        char buf[16];
+        print_string("  snap='");
+        for (int j = 0; snap.name[j] && j < 31; j++) { put_char(snap.name[j], 0x0F); }
+        print_string("' block=");
+        itoa((int)snap_block, buf, 10);
+        print_string(buf);
+        print_string("\n");
+        found = 1;
+      }
+    }
+    snap_block = snap.parent_snap_block;
+  }
+  if (!found) print_string("  (no versions found)\n");
 }
 
 void cmd_timediff(const char *args) {
@@ -2865,6 +2921,14 @@ void cmd_timeat(const char *args) {
   print_string(" at timestamp ");
   print_string(ts);
   print_string("...\n");
+  int idx = find_form(path);
+  if (idx >= 0) {
+    print_string("Current content:\n");
+    print_string(form_table[idx].content);
+    print_string("\n");
+  } else {
+    print_string("Form not found in current snapshot.\n");
+  }
 }
 
 // ---- Command Dispatch ----
@@ -2909,6 +2973,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
+  if (strcmp(cmd, "sysname") == 0) { print_string("HEXA OS 7.0 i386\n"); return 1; }
   if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 7.0 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "mkform") == 0) { cmd_mkform(args); save_data(); return 1; }
@@ -2954,6 +3019,8 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "ayo") == 0) { cmd_ayo(args); return 1; }
   if (strcmp(cmd, "dimpath") == 0) { cmd_dimpath(); return 1; }
   if (strcmp(cmd, "makedim") == 0) { cmd_makedim(args); return 1; }
+  if (strcmp(cmd, "setmode") == 0) { cmd_setmode(args); save_data(); return 1; }
+  if (strcmp(cmd, "setowner") == 0) { cmd_setowner(args); save_data(); return 1; }
   if (strcmp(cmd, "dmesg") == 0) { cmd_dmesg(); return 1; }
   if (strcmp(cmd, "clock") == 0) { cmd_clock(); return 1; }
   if (strcmp(cmd, "exec") == 0) { cmd_exec(args); return 1; }
@@ -3091,8 +3158,9 @@ void kernel_main(void) {
 
   print_color("[BOOT] Initializing network stack...\n", 0x0A);
   net_init();
+  net_register_observers();
 
-  print_color("[BOOT] Initializing process manager...\n", 0x0A);
+  print_color("[BOOT] Initializing task manager...\n", 0x0A);
   proc_init();
   vfs_init();
 
