@@ -26,7 +26,15 @@
 #define SYS_MMAP       19
 #define SYS_MUNMAP     20
 
-#define SYSCALL_MAX    21
+#define SYS_INTENT     21
+#define SYS_FULFILL    22
+#define SYS_DIFF       23
+#define SYS_REPLAY     24
+#define SYS_PIPE_TYPED 25
+#define SYS_EVENT_SEND 26
+#define SYS_EVENT_POLL 27
+
+#define SYSCALL_MAX    28
 
 #define SYS_OK        0
 #define SYS_EINVAL   -1
@@ -38,7 +46,6 @@
 #define SYS_EAGAIN   -7
 #define SYS_ENOSYS   -8
 
-// Argument validation — returns 0 if valid
 int sys_validate_str(const char *str, int max_len);
 int sys_validate_buf(void *buf, int len);
 

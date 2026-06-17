@@ -20,7 +20,7 @@
 
 struct vfs_node {
     char name[32];
-    int type;     // 0=file, 1=dir
+    int type;     // 0=form, 1=dim
     int size;
     int owner;
     uint16_t mode;

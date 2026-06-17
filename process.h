@@ -18,8 +18,8 @@
 #define PROC_NAME_LEN 24
 
 struct fd_entry {
-    int type;  // 0=closed, 1=file, 2=pipe, 3=console
-    int ref;   // file index / pipe id
+    int type;  // 0=closed, 1=form, 2=pipe, 3=console
+    int ref;   // form index / pipe id
     int pos;
     int flags;
 };

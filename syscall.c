@@ -6,6 +6,8 @@
 #include "pipe.h"
 #include "log.h"
 #include "paging.h"
+#include "intent.h"
+#include "replay.h"
 
 extern void print_string(const char *str);
 extern void print_color(const char *str, uint8_t color);
@@ -123,6 +125,55 @@ static int sys_munmap(uint32_t addr, uint32_t len) {
     return 0;
 }
 
+static int sys_intent(uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+    hexaos_intent_t *intent = (hexaos_intent_t *)arg1;
+    uint32_t *handle = (uint32_t *)arg2;
+    (void)arg3;
+    if (!intent || !handle) return SYS_EINVAL;
+    uint32_t h;
+    if (intent_create(tasks[current_task].pid, intent, &h) < 0) return SYS_EAGAIN;
+    *handle = h;
+    replay_record(SYS_INTENT, arg1, arg2, arg3, 0);
+    return SYS_OK;
+}
+
+static int sys_fulfill(uint32_t handle, void *buffer, int len) {
+    replay_record(SYS_FULFILL, handle, (uint32_t)buffer, (uint32_t)len, 0);
+    return intent_fulfill(handle, buffer, len);
+}
+
+static int sys_diff(uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    return SYS_ENOSYS;
+}
+
+static int sys_replay(uint32_t snap_id, uint32_t event_count, uint32_t flags) {
+    (void)flags;
+    return replay_execute(snap_id, event_count);
+}
+
+static int sys_pipe_typed(uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    return pipe_create((int *)arg1, (int *)arg2);
+}
+
+static int sys_event_send(uint32_t target_pid, uint32_t event_type, uint32_t payload_hash) {
+    (void)target_pid;
+    (void)event_type;
+    (void)payload_hash;
+    return SYS_OK;
+}
+
+static int sys_event_poll(uint32_t event_type_mask, uint32_t timeout_ticks) {
+    (void)event_type_mask;
+    (void)timeout_ticks;
+    return 0;
+}
+
 uint32_t syscall_handler(struct regs *r) {
     uint32_t num = r->eax;
     uint32_t arg1 = r->ebx;
@@ -193,6 +244,20 @@ uint32_t syscall_handler(struct regs *r) {
         }
         case SYS_MUNMAP:
             return sys_munmap(arg1, arg2);
+        case SYS_INTENT:
+            return sys_intent(arg1, arg2, arg3);
+        case SYS_FULFILL:
+            return sys_fulfill(arg1, (void *)arg2, (int)arg3);
+        case SYS_DIFF:
+            return sys_diff(arg1, arg2, arg3);
+        case SYS_REPLAY:
+            return sys_replay(arg1, arg2, arg3);
+        case SYS_PIPE_TYPED:
+            return sys_pipe_typed(arg1, arg2, arg3);
+        case SYS_EVENT_SEND:
+            return sys_event_send(arg1, arg2, arg3);
+        case SYS_EVENT_POLL:
+            return sys_event_poll(arg1, arg2);
         default:
             return SYS_ENOSYS;
     }

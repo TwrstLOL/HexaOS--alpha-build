@@ -3,18 +3,18 @@
 #include "process.h"
 #include "pipe.h"
 
-// Hook into hexa.c's file table
-extern int f_count;
-extern int find_file(const char *name);
+// Hook into hexa.c's form table
+extern int form_count;
+extern int find_form(const char *name);
 extern int check_perm(int idx, int want_write);
-extern int file_ensure_cap(int idx, int needed);
+extern int form_ensure_cap(int idx, int needed);
 
 // String functions from hexa.c
 extern char *strcpy(char *dest, const char *src);
 extern size_t strlen(const char *str);
 
-// hexa.c file table structure (dynamic content)
-struct hexa_file {
+// hexa.c form table structure (dynamic content)
+struct hexa_form {
   char name[32];
   char *content;
   int size;
@@ -22,14 +22,14 @@ struct hexa_file {
   int owner;
   uint16_t mode;
 };
-extern struct hexa_file f_table[];
+extern struct hexa_form form_table[];
 
 // FD table for the whole system
 #define VFS_MAX_FDS 128
 
 static struct {
     int pid;
-    int type;   // 0=free, 1=file, 2=pipe, 3=console
+    int type;   // 0=free, 1=form, 2=pipe, 3=console
     int ref;
     int pos;
     int flags;
@@ -54,13 +54,13 @@ int vfs_init(void) {
 }
 
 int vfs_open(const char *path, int flags) {
-    int idx = find_file(path);
+    int idx = find_form(path);
     if (idx < 0) {
         if (!(flags & O_CREAT)) return -1;
-        // Create file via touch
-        extern void cmd_touch(const char *name);
-        cmd_touch(path);
-        idx = find_file(path);
+        // Create form via mkform
+        extern void cmd_mkform(const char *name);
+        cmd_mkform(path);
+        idx = find_form(path);
         if (idx < 0) return -1;
     }
     if (check_perm(idx, flags & O_WRONLY)) return -1;
@@ -96,11 +96,11 @@ int vfs_read(int fd, char *buf, int count) {
     }
     if (vfs_fds[fd].type != 1) return -1;
     int idx = vfs_fds[fd].ref;
-    if (idx < 0 || idx >= f_count) return -1;
+    if (idx < 0 || idx >= form_count) return -1;
     int pos = vfs_fds[fd].pos;
     int n = 0;
-    while (n < count && pos + n < f_table[idx].size) {
-        buf[n] = f_table[idx].content[pos + n];
+    while (n < count && pos + n < form_table[idx].size) {
+        buf[n] = form_table[idx].content[pos + n];
         n++;
     }
     vfs_fds[fd].pos += n;
@@ -122,16 +122,16 @@ int vfs_write(int fd, const char *buf, int count) {
     }
     if (vfs_fds[fd].type != 1) return -1;
     int idx = vfs_fds[fd].ref;
-    if (idx < 0 || idx >= f_count) return -1;
+    if (idx < 0 || idx >= form_count) return -1;
     int pos = vfs_fds[fd].pos;
-    if (!file_ensure_cap(idx, pos + count + 1)) return -1;
+    if (!form_ensure_cap(idx, pos + count + 1)) return -1;
     int n = 0;
     while (n < count && pos + n < 65528) {
-        f_table[idx].content[pos + n] = buf[n];
+        form_table[idx].content[pos + n] = buf[n];
         n++;
     }
-    f_table[idx].content[pos + n] = '\0';
-    if (pos + n > f_table[idx].size) f_table[idx].size = pos + n;
+    form_table[idx].content[pos + n] = '\0';
+    if (pos + n > form_table[idx].size) form_table[idx].size = pos + n;
     vfs_fds[fd].pos += n;
     return n;
 }
@@ -150,15 +150,15 @@ int vfs_lseek(int fd, int offset, int whence) {
 
 int vfs_stat(const char *path, struct vfs_node *node) {
     if (!path || !node) return -1;
-    int idx = find_file(path);
+    int idx = find_form(path);
     if (idx < 0) return -1;
-    strcpy(node->name, f_table[idx].name);
+    strcpy(node->name, form_table[idx].name);
     node->type = 0;
     int len = strlen(node->name);
     if (len > 0 && node->name[len-1] == '/') node->type = 1;
-    node->size = f_table[idx].size;
-    node->owner = f_table[idx].owner;
-    node->mode = f_table[idx].mode;
+    node->size = form_table[idx].size;
+    node->owner = form_table[idx].owner;
+    node->mode = form_table[idx].mode;
     node->ref_count = 1;
     return 0;
 }
