@@ -6,13 +6,14 @@ LDFLAGS = -T link.ld -m elf_i386 -nostdlib
 
 OBJECTS = kernel_entry.o interrupts.o paging.o process.o syscall.o sync.o log.o driver.o pipe.o vfs.o elf.o hexafs_disk.o hexafs.o kobserve.o boot_policy.o intent.o replay.o hex.o net.o fb.o hexa.o
 
-all: clean os.img storage.img
+all: os.img storage.img
 
 boot.bin: boot_entry.asm kernel.bin
 	nasm -f bin -o boot.bin boot_entry.asm
 	ksect=$$(( $$(stat -c '%s' kernel.bin) / 512 + 1 )); \
-	[ $$ksect -gt 254 ] && ksect=254; \
-	printf '%b' "\\x$$(printf '%02x' $$ksect)" | dd of=boot.bin bs=1 seek=27 count=1 conv=notrunc 2>/dev/null; \
+	[ $$ksect -gt 510 ] && ksect=510; \
+	printf '%b' "\\x$$(printf '%02x' $$((ksect & 0xFF)))" | dd of=boot.bin bs=1 seek=27 count=1 conv=notrunc 2>/dev/null; \
+	printf '%b' "\\x$$(printf '%02x' $$((ksect >> 8 & 0xFF)))" | dd of=boot.bin bs=1 seek=28 count=1 conv=notrunc 2>/dev/null; \
 	echo "[*] Kernel sectors: $$ksect"
 
 kernel_entry.o: kernel_entry.asm
@@ -28,7 +29,11 @@ kernel.bin: kernel.elf
 	objcopy -O binary $< $@
 
 storage.img:
+	@if [ ! -f storage.img ]; then dd if=/dev/zero bs=512 count=4096 of=storage.img 2>/dev/null && echo "[✓] Created storage.img"; else echo "[*] storage.img exists, keeping data."; fi
+
+fresh:
 	dd if=/dev/zero bs=512 count=4096 of=storage.img 2>/dev/null
+	@echo "[✓] Fresh storage.img created (data wiped)"
 
 os.img: boot.bin kernel.bin
 	cat boot.bin kernel.bin > os.img
@@ -45,7 +50,7 @@ debug: kernel.elf os.img storage.img
 	@gdb -ex "target remote localhost:1234" -ex "symbol-file kernel.elf" -ex "b kernel_main" -ex "c"
 
 clean:
-	rm -f *.o *.elf *.bin os.img storage.img
-	@echo "[✓] Cleaned."
+	rm -f *.o *.elf *.bin os.img
+	@echo "[✓] Cleaned (storage.img preserved)."
 
-.PHONY: all run debug clean
+.PHONY: all run debug clean fresh

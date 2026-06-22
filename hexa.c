@@ -1529,25 +1529,25 @@ void cmd_neofetch(void) {
 
 // ---- User System ----
 void init_users(void) {
-  uint8_t raw[832];
-  uint32_t raw_sz = sizeof(raw);
-  if (hexafs_users_load(raw, &raw_sz) && raw_sz >= 4) {
-    int count = (int)(raw[0] | ((uint32_t)raw[1] << 8) | ((uint32_t)raw[2] << 16) | ((uint32_t)raw[3] << 24));
-    if (count >= 1 && count <= 12 && raw_sz >= 4 + (uint32_t)count * 68) {
-      for (int i = 0; i < count; i++) {
-        for (int j = 0; j < 32; j++) u_table[i].name[j] = (char)raw[4 + i * 68 + j];
-        for (int j = 0; j < 32; j++) u_table[i].pass_hash[j] = (char)raw[4 + i * 68 + 32 + j];
-        u_table[i].is_root = (int)(raw[4 + i * 68 + 64] & 0xFF);
-      }
-      u_count = count;
-      u_cur = 0;
-      return;
-    }
-  }
   strcpy(u_table[0].name, "root");
   encode_pwd(u_table[0].pass_hash, "root", 0xA5);
   u_table[0].is_root = 1;
   u_count = 1;
+  u_cur = 0;
+}
+
+static void load_users(void) {
+  uint8_t raw[832];
+  uint32_t raw_sz = sizeof(raw);
+  if (!hexafs_users_load(raw, &raw_sz) || raw_sz < 4) return;
+  int count = (int)(raw[0] | ((uint32_t)raw[1] << 8) | ((uint32_t)raw[2] << 16) | ((uint32_t)raw[3] << 24));
+  if (count < 1 || count > 12 || raw_sz < 4 + (uint32_t)count * 68) return;
+  for (int i = 0; i < count; i++) {
+    for (int j = 0; j < 32; j++) u_table[i].name[j] = (char)raw[4 + i * 68 + j];
+    for (int j = 0; j < 32; j++) u_table[i].pass_hash[j] = (char)raw[4 + i * 68 + 32 + j];
+    u_table[i].is_root = (int)(raw[4 + i * 68 + 64] & 0xFF);
+  }
+  u_count = count;
   u_cur = 0;
 }
 
@@ -2384,7 +2384,7 @@ struct pkg_entry {
   struct { char name[32]; char content[128]; } forms[PKG_FORMS_MAX];
   int nforms;
 };
-static struct pkg_entry pkg_db[] = {
+static const struct pkg_entry pkg_db[] = {
   {"games", {
     {"snake.txt","Snake: eat food (@), avoid walls, grow! WASD to move."},
     {"ttt.txt","Tic-Tac-Toe: two-player. Get three in a row!"},
@@ -2576,11 +2576,13 @@ static void cmd_ayo(const char *args) {
     char mkr[32]; mkr[0]='.'; mkr[1]=0; strcat(mkr, pkg);
     if (find_form(mkr) >= 0) { print_string("Already installed.\n"); return; }
     int mi = form_count;
-    strcpy(form_table[mi].name, mkr); form_table[mi].content[0]='1';
+    strcpy(form_table[mi].name, mkr);
+    form_ensure_cap(mi, 2); form_table[mi].content[0]='1';
     form_table[mi].content[1]=0; form_table[mi].size=1; form_table[mi].owner=u_cur; form_count++;
     for (int f = 0; f < pkg_db[idx].nforms; f++) {
       if (find_form(pkg_db[idx].forms[f].name) < 0) {
         strcpy(form_table[form_count].name, pkg_db[idx].forms[f].name);
+        form_ensure_cap(form_count, strlen(pkg_db[idx].forms[f].content) + 1);
         strcpy(form_table[form_count].content, pkg_db[idx].forms[f].content);
         form_table[form_count].size = strlen(pkg_db[idx].forms[f].content);
         form_table[form_count].owner = u_cur;
@@ -2621,10 +2623,12 @@ static void cmd_ayo(const char *args) {
       for (int f = 0; f < pkg_db[i].nforms; f++) {
         int fi = find_form(pkg_db[i].forms[f].name);
         if (fi >= 0) {
+          form_ensure_cap(fi, strlen(pkg_db[i].forms[f].content) + 1);
           strcpy(form_table[fi].content, pkg_db[i].forms[f].content);
           form_table[fi].size = strlen(pkg_db[i].forms[f].content);
         } else if (form_count < MAX_FORMS) {
           strcpy(form_table[form_count].name, pkg_db[i].forms[f].name);
+          form_ensure_cap(form_count, strlen(pkg_db[i].forms[f].content) + 1);
           strcpy(form_table[form_count].content, pkg_db[i].forms[f].content);
           form_table[form_count].size = strlen(pkg_db[i].forms[f].content);
           form_table[form_count].owner = u_cur;
@@ -2738,6 +2742,7 @@ static int save_data(void) {
 static void load_data(void) {
   disk_ok = 1;
   hexafs_load_all();
+  load_users();
   pimp_load_rules();
 }
 
@@ -3349,12 +3354,12 @@ void kernel_main(void) {
   ata_init();
   if (disk_ok) {
     hexafs_mount();
-    load_data();
   } else {
     print_color("[BOOT] No disk - formatting...\n", 0x0E);
     hexafs_format();
     hexafs_mount();
   }
+  load_data();
 
   print_color("[BOOT] Loading pimp rules...\n", 0x0A);
   pimp_load_rules();
