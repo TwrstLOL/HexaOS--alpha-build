@@ -602,12 +602,12 @@ void cmd_help() {
                  "          logo, sl, dice, 8ball, russian, insult\n"
                  "          excuse, compliment, hack, bsod\n");
   if (find_form(".games") >= 0)
-    print_string(" Games:   snake, tictactoe, hangman, memory\n");
-  if (find_form(".games") >= 0)
-    print_string("          tetris\n");
+    print_string(" Games:   snake, tictactoe, hangman, memory, tetris\n");
   print_string(" Info:    sysname, uptime, about, mem, beep, history\n");
   print_string("          dmesg, free, sysinfo, kstat, netstat\n");
   print_string("          caps, inbox, sendevent, pipes, bootlog\n");
+  print_string("          ps, df, which, env\n");
+  print_string("          cat, head\n");
   print_string(" Pimp:    pimp, diese, dieselist\n");
   print_string(" Video:   mode list/set/double/clear/color\n");
   print_string("------------------------------------\n");
@@ -3233,6 +3233,78 @@ static int execute_cmd(const char *cmd, char *args) {
     form_table[form_count].mode = form_table[si].mode;
     form_count++;
     save_data(); print_string("Copied.\n"); return 1;
+  }
+  if (strcmp(cmd, "ps") == 0) {
+    char b[16];
+    print_string("PID NAME             STATE\n");
+    for (int i = 0; i < MAX_TASKS; i++) {
+      if (tasks[i].pid < 0) continue;
+      itoa(tasks[i].pid, b, 10); print_string(b); print_string("   ");
+      print_string(tasks[i].name);
+      for (int k = strlen(tasks[i].name); k < 16; k++) print_string(" ");
+      const char *s = "?";
+      if (tasks[i].state == 0) s = "READY";
+      else if (tasks[i].state == 1) s = "RUN";
+      else if (tasks[i].state == 2) s = "BLKD";
+      else if (tasks[i].state == 3) s = "ZOMB";
+      print_string(s); print_string("\n");
+    }
+    return 1;
+  }
+  if (strcmp(cmd, "df") == 0) {
+    char b[32];
+    uint32_t fp = pmm_count_free();
+    print_string("Forms: "); itoa(form_count, b, 10); print_string(b);
+    print_string("/"); itoa(MAX_FORMS, b, 10); print_string(b);
+    print_string("  Mem: "); itoa(fp * 4, b, 10); print_string(b); print_string("KB free\n");
+    return 1;
+  }
+  if (strcmp(cmd, "which") == 0) {
+    if (!args[0]) { print_string("Usage: which <name>\n"); return 1; }
+    int fi = find_form(args);
+    if (fi >= 0) { print_string(args); print_string(": form\n"); return 1; }
+    for (int ui = 0; ui < u_count; ui++)
+      if (strcmp(u_table[ui].name, args) == 0) { print_string(args); print_string(": user\n"); return 1; }
+    const char *known[] = {"help","echo","clear","reboot","uptime","color","about","mem","beep","halt","date","cpuinfo","lspci","calc","ascii","palette","matrix","guess","snake","tictactoe","hangman","memory","tetris","neofetch","banner","yes","time","fortune","shutdown","rand","hex","reverse","len","tolower","toupper","sysname","uname","whoami","mkform","list","view","delete","write","append","edit","useradd","passwd","login","logout","sleep","panic","outb","inb","history","cowsay","cmatrix","dice","8ball","logo","pimp","dieselist","mode","sl","morse","russian","insult","excuse","compliment","hack","bsod","ayo","dimpath","makedim","setmode","setowner","dmesg","clock","exec","hexdump","sysinfo","kstat","netstat","ifconfig","netlog","netrollback","replay","bootlog","bootpolicy","setfallback","caps","grantcap","revokecap","hexpack","inbox","sendevent","pipes","timels","timediff","timeat","move","copy","diese","ps","df","which","cat","head","true","false","env",0};
+    for (int ki = 0; known[ki]; ki++)
+      if (strcmp(known[ki], args) == 0) { print_string(args); print_string(": command\n"); return 1; }
+    print_string(args); print_string(": not found\n");
+    return 1;
+  }
+  if (strcmp(cmd, "cat") == 0) {
+    if (!args[0]) { print_string("Usage: cat <form>\n"); return 1; }
+    int fi = find_form(args);
+    if (fi < 0) { print_string("Not found.\n"); return 1; }
+    if (check_perm(fi, 0)) { print_color("Denied.\n", 0x0C); return 1; }
+    print_string(form_table[fi].content); print_string("\n");
+    return 1;
+  }
+  if (strcmp(cmd, "head") == 0) {
+    char fn[32]={0}, ln[8]={0}; int i=0,j=0;
+    while(args[i]&&args[i]!=' '&&j<31){fn[j++]=args[i++];}
+    while(args[i]==' '){i++;} j=0;
+    while(args[i]&&j<7){ln[j++]=args[i++];}
+    int fi=find_form(fn);
+    if(fi<0){print_string("Not found.\n");return 1;}
+    if(check_perm(fi,0)){print_color("Denied.\n",0x0C);return 1;}
+    int n=ln[0]?atoi(ln):10;
+    if(n<1)n=1;
+    const char *p=form_table[fi].content;
+    while(*p&&n>0){if(*p=='\n')n--;put_char(*p,current_color);p++;}
+    if(*(p-1)!='\n')print_string("\n");
+    return 1;
+  }
+  if (strcmp(cmd, "true") == 0) { return 1; }
+  if (strcmp(cmd, "false") == 0) { return 1; }
+  if (strcmp(cmd, "env") == 0) {
+    print_string("SHELL=hexa\n");
+    print_string("OS=HexaOS/7.2\n");
+    print_string("ARCH=i386\n");
+    print_string("USER="); print_string(u_table[u_cur].name); print_string("\n");
+    char b[16];
+    print_string("FORMS="); itoa(form_count, b, 10); print_string(b); print_string("\n");
+    print_string("TICKS="); itoa(ticks, b, 10); print_string(b); print_string("\n");
+    return 1;
   }
   if (strcmp(cmd, "diese") == 0) {
     if (!args[0]) { print_string("Usage: diese <command> [args]\n"); return 1; }

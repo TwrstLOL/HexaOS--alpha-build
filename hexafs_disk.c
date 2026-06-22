@@ -293,17 +293,35 @@ int hexafs_object_write_data(uint32_t obj_block, const void *data, uint32_t size
         log_write(LOG_LEVEL_WARN, "HEXAFS: object write CRC fail (self-healing)");
         obj.checksum = ck;
     }
-    uint32_t data_block = hexafs_alloc_block();
-    if (!data_block) return 0;
+    uint32_t blocks[4] = {0};
+    blocks[0] = obj.content_block;
+    blocks[1] = obj.content_blocks_extra[0];
+    blocks[2] = obj.content_blocks_extra[1];
+    blocks[3] = obj.content_blocks_extra[2];
+    uint32_t remaining = size;
+    uint32_t offset = 0;
     uint8_t block_buf[HEXAFS_BLOCK_SIZE];
-    memset(block_buf, 0, sizeof(block_buf));
-    uint32_t copy_size = size < HEXAFS_BLOCK_SIZE ? size : HEXAFS_BLOCK_SIZE;
-    memcpy(block_buf, data, copy_size);
-    if (!hexafs_block_write(data_block, block_buf)) {
-        hexafs_free_block(data_block);
-        return 0;
+    int nblocks = (size + HEXAFS_BLOCK_SIZE - 1) / HEXAFS_BLOCK_SIZE;
+    if (nblocks > 4) nblocks = 4;
+    for (int i = 0; i < nblocks; i++) {
+        uint32_t db = blocks[i];
+        if (!db) {
+            db = hexafs_alloc_block();
+            if (!db) return 0;
+        }
+        memset(block_buf, 0, sizeof(block_buf));
+        uint32_t copy = remaining < HEXAFS_BLOCK_SIZE ? remaining : HEXAFS_BLOCK_SIZE;
+        memcpy(block_buf, (const uint8_t*)data + offset, copy);
+        if (!hexafs_block_write(db, block_buf)) { if (i > 0 && db != blocks[i]) hexafs_free_block(db); return 0; }
+        if (i == 0) obj.content_block = db;
+        else obj.content_blocks_extra[i - 1] = db;
+        offset += copy;
+        remaining -= copy;
     }
-    obj.content_block = data_block;
+    for (int i = nblocks; i < 4; i++) {
+        if (i == 0) obj.content_block = 0;
+        else obj.content_blocks_extra[i - 1] = 0;
+    }
     obj.content_size = size;
     obj.content_hash = hexafs_content_hash(data, size);
     obj.checksum = obj_checksum(&obj);
@@ -320,14 +338,20 @@ int hexafs_object_read_data(uint32_t obj_block, void *buf, uint32_t *size, uint8
         obj.checksum = ck;
     }
     if (type) *type = obj.type;
-    if (size) {
-        *size = obj.content_size;
-    }
+    if (size) *size = obj.content_size;
     if (buf && obj.content_block && obj.content_size > 0) {
-        uint8_t block_buf[HEXAFS_BLOCK_SIZE];
-        if (!hexafs_block_read(obj.content_block, block_buf)) return 0;
-        uint32_t read_sz = obj.content_size < HEXAFS_BLOCK_SIZE ? obj.content_size : HEXAFS_BLOCK_SIZE;
-        memcpy(buf, block_buf, read_sz);
+        uint32_t remaining = obj.content_size;
+        uint32_t offset = 0;
+        uint32_t db[4] = {obj.content_block, obj.content_blocks_extra[0], obj.content_blocks_extra[1], obj.content_blocks_extra[2]};
+        for (int i = 0; i < 4 && remaining > 0; i++) {
+            if (!db[i]) break;
+            uint8_t block_buf[HEXAFS_BLOCK_SIZE];
+            if (!hexafs_block_read(db[i], block_buf)) return 0;
+            uint32_t copy = remaining < HEXAFS_BLOCK_SIZE ? remaining : HEXAFS_BLOCK_SIZE;
+            memcpy((uint8_t*)buf + offset, block_buf, copy);
+            offset += copy;
+            remaining -= copy;
+        }
     }
     return 1;
 }

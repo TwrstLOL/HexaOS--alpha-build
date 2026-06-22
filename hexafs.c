@@ -100,22 +100,24 @@ static uint32_t form_from_fentry(const char *content, int size, int owner, uint1
     (void)content;
     uint32_t form_block = hexafs_object_alloc(HEXAFS_FORM);
     if (!form_block) return 0;
-    uint8_t buf[HEXAFS_BLOCK_SIZE - 64];
+    int meta = 10;
+    int total = meta + size;
+    if (total > 2048) total = 2048;
+    uint8_t *buf = (uint8_t*)kmalloc((uint32_t)total);
+    if (!buf) { hexafs_free_block(form_block); return 0; }
     uint32_t meta_offset = 0;
     memcpy(buf + meta_offset, &owner, 4); meta_offset += 4;
     memcpy(buf + meta_offset, &mode, 2); meta_offset += 2;
     uint32_t cap = 0;
     memcpy(buf + meta_offset, &cap, 4); meta_offset += 4;
-    uint32_t content_copy_size = (uint32_t)size;
-    if (content_copy_size > sizeof(buf) - meta_offset)
-        content_copy_size = sizeof(buf) - meta_offset;
-    if (content_copy_size > 0 && content)
-        memcpy(buf + meta_offset, content, content_copy_size);
-    uint32_t total_size = meta_offset + content_copy_size;
-    if (!hexafs_object_write_data(form_block, buf, total_size)) {
-        hexafs_free_block(form_block);
-        return 0;
-    }
+    int copy = size;
+    if (copy > total - meta) copy = total - meta;
+    if (copy > 0 && content)
+        memcpy(buf + meta_offset, content, (uint32_t)copy);
+    uint32_t total_size = (uint32_t)(meta + copy);
+    int ok = hexafs_object_write_data(form_block, buf, total_size);
+    kfree(buf);
+    if (!ok) { hexafs_free_block(form_block); return 0; }
     return form_block;
 }
 
@@ -163,9 +165,10 @@ void hexafs_load_all(void) {
             j++;
         }
         form_table[form_count].name[j] = 0;
-        uint8_t content_buf[HEXAFS_BLOCK_SIZE];
-        uint32_t data_size = sizeof(content_buf);
+        uint8_t *content_buf = (uint8_t*)kmalloc(2048);
+        uint32_t data_size = 2048;
         uint8_t rtype;
+        if (!content_buf) { form_table[form_count].content = 0; form_table[form_count].size = 0; form_count++; continue; }
         if (hexafs_object_read_data(hdr->entries[i].object_block, content_buf, &data_size, &rtype) && rtype == HEXAFS_FORM) {
             int owner = 0;
             uint16_t mode = 0x1A4;
@@ -208,6 +211,7 @@ void hexafs_load_all(void) {
             form_table[form_count].owner = 0;
             form_table[form_count].mode = 0x1A4;
         }
+        kfree(content_buf);
         form_count++;
     }
 }
