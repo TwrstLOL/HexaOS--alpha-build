@@ -115,6 +115,17 @@ typedef struct __attribute__((packed)) {
 } hexafs_abs_entry_t;
 
 #define HEXAFS_ABS_MAX_ENTRIES  11
+#define HEXAFS_ABS_CHAIN_MAX    8
+
+#define HEXAFS_CACHE_SLOTS      16
+#define HEXAFS_JOURNAL_BLOCKS   4
+#define HEXAFS_NEXT_ALLOC_LBA   200
+
+typedef struct __attribute__((packed)) {
+    uint32_t lba;
+    uint8_t  dirty;
+    uint8_t  data[HEXAFS_BLOCK_SIZE];
+} hexafs_cache_slot_t;
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -123,5 +134,7 @@ typedef struct __attribute__((packed)) {
     hexafs_abs_entry_t entries[HEXAFS_ABS_MAX_ENTRIES];
     uint8_t pad[16];
 } hexafs_abs_header_t;
+
+int hexafs_cache_flush_all(void);
 
 #endif

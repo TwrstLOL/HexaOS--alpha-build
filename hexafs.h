@@ -63,4 +63,21 @@ int hexafs_cap_revoke(uint32_t grant_hash);
 int hexafs_cap_list_pid(uint32_t pid, char *out, int out_len);
 uint32_t hexafs_snap_for_pid(uint32_t pid);
 
+#define PIMP_RULE_MAX 32
+#define PIMP_NAME_MAX 32
+
+typedef struct {
+    char user[PIMP_NAME_MAX];
+    uint32_t allowed_caps;
+    int no_pass;
+    int session_only;
+} pimp_rule_t;
+
+int pimp_load_rules(void);
+int pimp_save_rules(void);
+int pimp_check(const char *username, uint32_t cap_type);
+int pimp_rule_add(const char *username, uint32_t caps, int no_pass, int session_only);
+int pimp_rule_remove(const char *username);
+int pimp_rule_list(char *out, int out_len);
+
 #endif

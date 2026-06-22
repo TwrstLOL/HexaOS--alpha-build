@@ -188,7 +188,7 @@ void itoa(int num, char *str, int base) {
   }
 }
 
-// ----------------- Password Hashing (v7.0 - 16-bit salt + iterations) -----------------
+// ----------------- Password Hashing (v7.2 - 16-bit salt + iterations) -----------------
 static uint32_t pwd_hash(const char *str, uint32_t salt, int iters) {
   uint32_t h = 5381 + salt;
   int c;
@@ -233,7 +233,7 @@ static int check_pwd(const char *pass, const char *encoded) {
     while (*hp) { sh = sh * 16 + hex_val(*hp); hp++; }
     return pwd_hash(pass, salt, iters) == sh;
   }
-  // Old format (v7.0-): "SS HHHHHHHH" — 2-hex salt, space, 1-iteration hash
+  // Old format (v7.2-): "SS HHHHHHHH" — 2-hex salt, space, 1-iteration hash
   // Check for space at pos 2 as old format marker, bail on garbage
   if (encoded[2] != ' ') return 0;
   uint32_t salt = 0;
@@ -583,7 +583,7 @@ int find_form(const char *name);
 static int execute_cmd(const char *cmd, char *args);
 
 void cmd_help() {
-  print_string("HEXA OS 7.0 Commands\n");
+  print_string("HEXA OS 7.2 Commands\n");
   print_string("------------------------------------\n");
   print_string(" System:  help, clear, reboot, halt, panic, sleep, shutdown\n");
   print_string("          uptime\n");
@@ -610,6 +610,7 @@ void cmd_help() {
   print_string("          replay, bootlog, bootpolicy, setfallback, caps\n");
   print_string("          grantcap, revokecap, hexpack, inbox, sendevent\n");
   print_string("          pipes, timels, timediff, timeat\n");
+  print_string(" Pimp:    pimp, diese, dieselist\n");
   print_string("------------------------------------\n");
   print_string(" Pkg mgmt: ayo help\n");
 }
@@ -1419,17 +1420,17 @@ void cmd_neofetch(void) {
   char buf[16];
   clear_screen();
   print_color("    __________________________\n", 0x0B);
-  print_color("   /   H E X A   O S   7.0   \\\n", 0x0B);
-  print_color("  |  VFS  ·  Tetris  ·  Pipe  |\n", 0x0B);
-  print_color("  |  90+ Cmds  ·  ATA Storage |\n", 0x0B);
+  print_color("   /   H E X A   O S   7.2   \\\n", 0x0B);
+  print_color("  |  HEXAFSv2 · Pimp · Persist|\n", 0x0B);
+  print_color("  |  120+ Cmds · ATA HEXAFS   |\n", 0x0B);
   print_color("  |  32-bit Protected Mode    |\n", 0x0B);
   print_color("   \\________________________/\n", 0x0B);
   print_string(" ┌──────────────────────────────┐\n");
-  print_string(" │  OS:       "); print_color("HEXA OS 7.0 i386", 0x0A); print_string("         │\n");
+  print_string(" │  OS:       "); print_color("HEXA OS 7.2 i386", 0x0A); print_string("         │\n");
   print_string(" │  Host:     "); print_color(hostname_str, 0x0A); 
   for (int sp = strlen(hostname_str); sp < 21; sp++) put_char(' ', 0x0F);
   print_string("│\n");
-  print_string(" │  Version:  "); print_color("7.0 \"VFS Edition\"", 0x0E); print_string("    │\n");
+  print_string(" │  Version:  "); print_color("7.2 \"Diamond II\"", 0x0E); print_string("     │\n");
   print_string(" │  Kernel:   "); print_color(v, 0x0A); 
   for (int sp = strlen(v); sp < 23; sp++) put_char(' ', 0x0F);
   print_string("│\n");
@@ -1499,16 +1500,16 @@ void cmd_neofetch(void) {
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
   print_string("       │\n");
   // Commands / features
-  print_string(" │  Shell:   HEXA CLI v7.0  80x25  │\n");
+  print_string(" │  Shell:   HEXA CLI v7.2  80x25  │\n");
   print_string(" │  Cache:   ");
-  print_color("GDT+IDT  PIT+PIC  ATA+PMM", 0x0A);
-  print_string("   │\n");
+  print_color("BLK-CACHE  JOURNAL  PIMP-ACL", 0x0A);
+  print_string("  │\n");
   print_string(" │  Kernel:  ");
   print_color("PageFault+GPF handler", 0x0A);
   print_string("      │\n");
   print_string(" │  Syscall: ");
-  print_color("int 0x80  (4 syscalls)", 0x0A);
-  print_string("      │\n");
+  print_color("int 0x80  (28 syscalls)", 0x0A);
+  print_string("     │\n");
   print_string(" │  User:    ");
   print_color("Ring3 TSS  Context switch", 0x0A);
   print_string("  │\n");
@@ -1540,8 +1541,8 @@ void do_login(void) {
   print_color(
     "╭──────────────────────────────╮\n"
     "│         H E X A   O S        │\n"
-    "│        Version 7.0           │\n"
-    "│   VFS · Tetris · 90+ Cmds    │\n"
+    "│        Version 7.2           │\n"
+    "│   HEXAFSv2 · Pimp · 120+ Cmds│\n"
     "╰──────────────────────────────╯\n", 0x0B);
     print_string("login: ");
     get_line(name, NAME_MAX);
@@ -2085,10 +2086,10 @@ void cmd_logo(void) {
   print_color("  ║  HHHHH  EEEE   X   X   AAAAA    ║\n", 0x0B);
   print_color("  ║  H   H  E      X   X   A   A    ║\n", 0x0A);
   print_color("  ║  H   H  EEEEE  X   X   A   A    ║\n", 0x0A);
-  print_color("  ║         7.0  VFS EDITION         ║\n", 0x0E);
+  print_color("  ║         7.2  DIAMOND  II         ║\n", 0x0E);
   print_color("  ║                                  ║\n", 0x0A);
-  print_color("  ║   IDT · PIC · PIT · PMM · HEAP  ║\n", 0x0A);
-  print_color("  ║   SCHED · SYSCALL · USERMODE    ║\n", 0x0A);
+  print_color("  ║  HEXAFSv2 · PIMP · PERSIST     ║\n", 0x0A);
+  print_color("  ║   BLK CACHE · JOURNALING       ║\n", 0x0A);
   print_color("  ╚══════════════════════════════════╝\n", 0x0B);
 }
 
@@ -2218,7 +2219,7 @@ void cmd_bsod(void) {
   clear_screen();
 }
 
-// ---- Powerful New Commands v7.0 ----
+// ---- Diamond Feature Commands (v7.2) ----
 void cmd_clock(void) {
   clear_screen();
   cursor_x = 0; cursor_y = 0;
@@ -2332,7 +2333,7 @@ void cmd_uptime_fmt(void) {
 
 void cmd_sysinfo(void) {
   char buf[16];
-  print_color("HEXA OS v7.0 - Quick System Info\n", 0x0B);
+  print_color("HEXA OS v7.2 - Quick System Info\n", 0x0B);
   print_string("================================\n");
   cmd_cpuinfo();
   print_string("Memory: "); itoa(pmm_count_free() * 4, buf, 10); print_string(buf); print_string(" KB free\n");
@@ -2702,9 +2703,10 @@ static int save_data(void) {
 static void load_data(void) {
   disk_ok = 1;
   hexafs_load_all();
+  pimp_load_rules();
 }
 
-// ---- Diamond Feature Commands (v7.0) ----
+// ---- Diamond Feature Commands (v7.2) ----
 void cmd_kstat(const char *args) {
   if (!args[0]) { print_string("Usage: kstat </@kernel/...>\n"); return; }
   char buf[1024];
@@ -2931,6 +2933,57 @@ void cmd_timeat(const char *args) {
   }
 }
 
+void cmd_pimp(const char *args) {
+    char sub[16] = {0}, uname[32] = {0};
+    int i = 0, j = 0;
+    while (args[i] && args[i] != ' ' && i < 15) { sub[i] = args[i]; i++; }
+    while (args[i] == ' ') i++;
+    while (args[i] && j < 31) { uname[j++] = args[i++]; }
+    if (strcmp(sub, "list") == 0 || sub[0] == 0) {
+        char buf[512];
+        pimp_rule_list(buf, sizeof(buf));
+        print_string(buf);
+        return;
+    }
+    if (strcmp(sub, "add") == 0) {
+        if (!uname[0]) { print_string("Usage: pimp add <user> [caps=nopass]\n"); return; }
+        uint32_t caps = 0xFFFFFFFF;
+        int no_pass = 1;
+        for (int k = 0; uname[k]; k++) {
+            char *eq = 0;
+            for (int m = 0; uname[m]; m++) { if (uname[m] == '=') { eq = &uname[m]; break; } }
+            if (eq) {
+                *eq = 0;
+                caps = (uint32_t)atoi(eq + 1);
+                no_pass = 0;
+                break;
+            }
+        }
+        if (pimp_rule_add(uname, caps, no_pass, 0)) {
+            pimp_save_rules();
+            print_string("Pimp rule added for ");
+            print_string(uname);
+            print_string("\n");
+        } else { print_string("Failed.\n"); }
+        return;
+    }
+    if (strcmp(sub, "remove") == 0) {
+        if (!uname[0]) { print_string("Usage: pimp remove <user>\n"); return; }
+        if (pimp_rule_remove(uname)) {
+            pimp_save_rules();
+            print_string("Removed.\n");
+        } else { print_string("Not found.\n"); }
+        return;
+    }
+    print_string("Usage: pimp [list|add|remove] [args]\n");
+}
+
+void cmd_dieselist(void) {
+    char buf[512];
+    pimp_rule_list(buf, sizeof(buf));
+    print_string(buf);
+}
+
 // ---- Command Dispatch ----
 static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "help") == 0) {
@@ -2944,7 +2997,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "reboot") == 0) { outb(0x64, 0xFE); while (1); return 1; }
   if (strcmp(cmd, "uptime") == 0) { char b[16]; itoa(ticks,b,10); print_string(b); print_string(" ticks\n"); return 1; }
   if (strcmp(cmd, "color") == 0) { current_color = atoi(args) & 0x0F; return 1; }
-  if (strcmp(cmd, "about") == 0) { print_string("HEXA OS 7.0 - 32-bit hobby OS with block FS, NIC driver, RTL8139 ping, exec.\n"); return 1; }
+  if (strcmp(cmd, "about") == 0) { print_string("HEXA OS 7.2 - 32-bit hobby OS with HEXAFSv2, block cache, pimp ACLs, persistence.\n"); return 1; }
   if (strcmp(cmd, "mem") == 0) { print_string("VGA: 4000B\n"); return 1; }
   if (strcmp(cmd, "beep") == 0) { serial_putc('\a'); return 1; }
   if (strcmp(cmd, "halt") == 0) { __asm__ volatile("cli; hlt"); return 1; }
@@ -2973,8 +3026,8 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "len") == 0) { char b[16]; itoa(strlen(args),b,10); print_string(b); print_string("\n"); return 1; }
   if (strcmp(cmd, "tolower") == 0) { for(int k=0;args[k];k++) if(args[k]>='A'&&args[k]<='Z') args[k]+=32; print_string(args); print_string("\n"); return 1; }
   if (strcmp(cmd, "toupper") == 0) { for(int k=0;args[k];k++) if(args[k]>='a'&&args[k]<='z') args[k]-=32; print_string(args); print_string("\n"); return 1; }
-  if (strcmp(cmd, "sysname") == 0) { print_string("HEXA OS 7.0 i386\n"); return 1; }
-  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 7.0 i386\n"); return 1; }
+  if (strcmp(cmd, "sysname") == 0) { print_string("HEXA OS 7.2 i386\n"); return 1; }
+  if (strcmp(cmd, "uname") == 0) { print_string("HEXA OS 7.2 i386\n"); return 1; }
   if (strcmp(cmd, "whoami") == 0) { print_string(u_table[u_cur].name); print_string("\n"); return 1; }
   if (strcmp(cmd, "mkform") == 0) { cmd_mkform(args); save_data(); return 1; }
   if (strcmp(cmd, "list") == 0) { cmd_list(); return 1; }
@@ -3008,6 +3061,8 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "dice") == 0) { cmd_dice(args); return 1; }
   if (strcmp(cmd, "8ball") == 0) { cmd_8ball(); return 1; }
   if (strcmp(cmd, "logo") == 0) { cmd_logo(); return 1; }
+  if (strcmp(cmd, "pimp") == 0) { cmd_pimp(args); return 1; }
+  if (strcmp(cmd, "dieselist") == 0) { cmd_dieselist(); return 1; }
   if (strcmp(cmd, "sl") == 0) { cmd_sl(); return 1; }
   if (strcmp(cmd, "morse") == 0) { cmd_morse(args); return 1; }
   if (strcmp(cmd, "russian") == 0) { cmd_russian(); return 1; }
@@ -3067,8 +3122,9 @@ static int execute_cmd(const char *cmd, char *args) {
     if(si<0){print_string("Not found.\n");return 1;}
     if(check_perm(si,0)){print_color("Denied.\n",0x0C);return 1;}
     if(form_count>=MAX_FORMS){print_string("Full.\n");return 1;}
+    form_ensure_cap(form_count, form_table[si].size);
     strcpy(form_table[form_count].name, dst);
-    memcpy(form_table[form_count].content, form_table[si].content, 512);
+    memcpy(form_table[form_count].content, form_table[si].content, form_table[si].size);
     form_table[form_count].size = form_table[si].size;
     form_table[form_count].owner = u_cur;
     form_table[form_count].mode = form_table[si].mode;
@@ -3078,21 +3134,26 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "diese") == 0) {
     if (!args[0]) { print_string("Usage: diese <command> [args]\n"); return 1; }
     if (u_cur == 0) { print_string("Already root.\n"); return 1; }
-    char pw[32];
-    print_string("password: ");
-    get_line(pw, 32);
-    if (!check_pwd(pw, u_table[u_cur].pass_hash)) { print_color("Access denied.\n", 0x0C); return 1; }
-    // Migrate old-format hash to new format
-    if (u_table[u_cur].pass_hash[2] == ' ') {
-      encode_pwd(u_table[u_cur].pass_hash, pw, ticks & 0xFFFF);
-      save_data();
+    char uname[32];
+    strcpy(uname, u_table[u_cur].name);
+    int no_pass = pimp_check(uname, 0xFFFFFFFF);
+    if (!no_pass) {
+      char pw[32];
+      print_string("password: ");
+      get_line(pw, 32);
+      if (!check_pwd(pw, u_table[u_cur].pass_hash)) { print_color("Access denied.\n", 0x0C); return 1; }
+      if (u_table[u_cur].pass_hash[2] == ' ') {
+        encode_pwd(u_table[u_cur].pass_hash, pw, ticks & 0xFFFF);
+        save_data();
+      }
     }
     char c[32]={0}, a[96]={0}; int i=0,j=0;
     while(args[i]&&args[i]!=' '&&j<31){c[j++]=args[i++];}
     while(args[i]==' '){i++;} j=0;
     while(args[i]&&j<95){a[j++]=args[i++];}
     int saved=u_cur; u_cur=0;
-    print_color("[diese] ", 0x0C);
+    if (no_pass) { print_color("[diese] (pimped) ", 0x0A); }
+    else { print_color("[diese] ", 0x0C); }
     execute_cmd(c, a);
     u_cur=saved;
     return 1;
@@ -3193,6 +3254,9 @@ void kernel_main(void) {
     hexafs_format();
     hexafs_mount();
   }
+
+  print_color("[BOOT] Loading pimp rules...\n", 0x0A);
+  pimp_load_rules();
 
   print_color("[BOOT] Executing boot policy...\n", 0x0A);
   boot_policy_execute();

@@ -11,11 +11,67 @@ extern int memcmp(const void *s1, const void *s2, size_t n);
 
 static uint8_t alloc_bitmap[HEXAFS_ALLOC_BLOCKS * HEXAFS_BLOCK_SIZE];
 static int alloc_bitmap_dirty = 0;
+static int next_alloc_hint = HEXAFS_OBJECT_LBA;
 int hexafs_mounted = 0;
 hexafs_superblock_t hexafs_sb;
 
 hexafs_superblock_t sb_cache;
 static int sb_valid = 0;
+
+static hexafs_cache_slot_t block_cache[HEXAFS_CACHE_SLOTS];
+
+static int cache_find(uint32_t lba) {
+    for (int i = 0; i < HEXAFS_CACHE_SLOTS; i++)
+        if (block_cache[i].lba == lba) return i;
+    return -1;
+}
+
+static int cache_evict(void) {
+    for (int i = 0; i < HEXAFS_CACHE_SLOTS; i++) {
+        if (!block_cache[i].lba) return i;
+    }
+    return 0;
+}
+
+static void cache_flush_dirty(void) {
+    for (int i = 0; i < HEXAFS_CACHE_SLOTS; i++) {
+        if (block_cache[i].lba && block_cache[i].dirty) {
+            uint16_t tmp[256];
+            memcpy(tmp, block_cache[i].data, HEXAFS_BLOCK_SIZE);
+            ata_write_sector(block_cache[i].lba, tmp);
+            block_cache[i].dirty = 0;
+        }
+    }
+}
+
+static int cache_read(uint32_t lba, void *buf) {
+    int idx = cache_find(lba);
+    if (idx >= 0) {
+        memcpy(buf, block_cache[idx].data, HEXAFS_BLOCK_SIZE);
+        return 1;
+    }
+    uint16_t tmp[256];
+    if (!ata_read_sector(lba, tmp)) return 0;
+    idx = cache_evict();
+    block_cache[idx].lba = lba;
+    block_cache[idx].dirty = 0;
+    memcpy(block_cache[idx].data, tmp, HEXAFS_BLOCK_SIZE);
+    memcpy(buf, tmp, HEXAFS_BLOCK_SIZE);
+    return 1;
+}
+
+static int cache_write(uint32_t lba, const void *buf) {
+    int idx = cache_find(lba);
+    if (idx < 0) {
+        idx = cache_evict();
+        block_cache[idx].lba = lba;
+    }
+    block_cache[idx].dirty = 1;
+    memcpy(block_cache[idx].data, buf, HEXAFS_BLOCK_SIZE);
+    uint16_t tmp[256];
+    memcpy(tmp, buf, HEXAFS_BLOCK_SIZE);
+    return ata_write_sector(lba, tmp);
+}
 
 static int bitmap_test(int block) {
     int byte_idx = block / 8;
@@ -49,16 +105,11 @@ uint32_t hexafs_content_hash(const void *data, uint32_t size) {
 }
 
 int hexafs_block_read(uint32_t lba, void *buf) {
-    uint16_t tmp[256];
-    if (!ata_read_sector(lba, tmp)) return 0;
-    memcpy(buf, tmp, HEXAFS_BLOCK_SIZE);
-    return 1;
+    return cache_read(lba, buf);
 }
 
 int hexafs_block_write(uint32_t lba, const void *buf) {
-    uint16_t tmp[256];
-    memcpy(tmp, buf, HEXAFS_BLOCK_SIZE);
-    return ata_write_sector(lba, tmp);
+    return cache_write(lba, buf);
 }
 
 int hexafs_block_verify(uint32_t lba, const void *buf, uint32_t stored_crc) {
@@ -80,12 +131,23 @@ static uint32_t obj_checksum(hexafs_object_t *obj) {
 }
 
 uint32_t hexafs_alloc_block(void) {
-    for (int i = HEXAFS_OBJECT_LBA; i < HEXAFS_DISK_BLOCKS; i++) {
+    for (int i = next_alloc_hint; i < HEXAFS_DISK_BLOCKS; i++) {
         if (!bitmap_test(i)) {
             bitmap_set(i);
             uint8_t zero[HEXAFS_BLOCK_SIZE];
             memset(zero, 0, sizeof(zero));
             hexafs_block_write(i, zero);
+            next_alloc_hint = i + 1;
+            return (uint32_t)i;
+        }
+    }
+    for (int i = HEXAFS_OBJECT_LBA; i < next_alloc_hint; i++) {
+        if (!bitmap_test(i)) {
+            bitmap_set(i);
+            uint8_t zero[HEXAFS_BLOCK_SIZE];
+            memset(zero, 0, sizeof(zero));
+            hexafs_block_write(i, zero);
+            next_alloc_hint = i + 1;
             return (uint32_t)i;
         }
     }
@@ -96,6 +158,7 @@ uint32_t hexafs_alloc_block(void) {
 void hexafs_free_block(uint32_t lba) {
     if (lba < HEXAFS_OBJECT_LBA || lba >= HEXAFS_DISK_BLOCKS) return;
     bitmap_clear(lba);
+    if (lba < (uint32_t)next_alloc_hint) next_alloc_hint = (int)lba;
 }
 
 static int bitmap_init(void) {
@@ -181,6 +244,7 @@ int hexafs_format(void) {
     sb_cache.allocator_lba = HEXAFS_ALLOC_LBA;
     sb_cache.allocator_blocks = HEXAFS_ALLOC_BLOCKS;
     sb_cache.object_store_lba = HEXAFS_OBJECT_LBA;
+    memset(block_cache, 0, sizeof(block_cache));
     bitmap_init();
     if (!hexafs_write_superblock()) return 0;
     if (!hexafs_save_bitmap()) return 0;
@@ -190,6 +254,7 @@ int hexafs_format(void) {
 }
 
 int hexafs_mount_disk(void) {
+    memset(block_cache, 0, sizeof(block_cache));
     if (!hexafs_read_superblock()) {
         log_write(LOG_LEVEL_WARN, "HEXAFS: no superblock, need format");
         return 0;
@@ -339,79 +404,142 @@ uint32_t hexafs_abstraction_create(void) {
     return block;
 }
 
-int hexafs_abstraction_add_entry(uint32_t abs_block, const char *name, uint32_t obj_block, uint8_t type) {
+static uint32_t hexafs_abstraction_next_chain(uint32_t abs_block) {
     uint8_t buf[HEXAFS_BLOCK_SIZE];
     if (!hexafs_block_read(abs_block, buf)) return 0;
     hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
-    uint32_t ck = abs_checksum(hdr);
-    if (ck != hdr->checksum) {
-        log_write(LOG_LEVEL_WARN, "HEXAFS: abstraction CRC fail");
-        return 0;
+    return hdr->pad[0] | ((uint32_t)hdr->pad[1] << 8) | ((uint32_t)hdr->pad[2] << 16) | ((uint32_t)hdr->pad[3] << 24);
+}
+
+static void hexafs_abstraction_set_chain(uint32_t abs_block, uint32_t next_block) {
+    uint8_t buf[HEXAFS_BLOCK_SIZE];
+    if (!hexafs_block_read(abs_block, buf)) return;
+    hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
+    hdr->pad[0] = next_block & 0xFF;
+    hdr->pad[1] = (next_block >> 8) & 0xFF;
+    hdr->pad[2] = (next_block >> 16) & 0xFF;
+    hdr->pad[3] = (next_block >> 24) & 0xFF;
+    hexafs_block_write(abs_block, buf);
+}
+
+int hexafs_abstraction_add_entry(uint32_t abs_block, const char *name, uint32_t obj_block, uint8_t type) {
+    uint32_t cur = abs_block;
+    while (cur) {
+        uint8_t buf[HEXAFS_BLOCK_SIZE];
+        if (!hexafs_block_read(cur, buf)) return 0;
+        hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
+        uint32_t ck = abs_checksum(hdr);
+        if (ck != hdr->checksum) {
+            log_write(LOG_LEVEL_WARN, "HEXAFS: abstraction CRC fail");
+            return 0;
+        }
+        if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
+        if (hdr->entry_count < HEXAFS_ABS_MAX_ENTRIES) {
+            int count = hdr->entry_count;
+            int i = 0;
+            while (name[i] && i < 31) { hdr->entries[count].name[i] = name[i]; i++; }
+            hdr->entries[count].name[i] = 0;
+            hdr->entries[count].object_block = obj_block;
+            hdr->entries[count].type = type;
+            hdr->entry_count = count + 1;
+            hdr->checksum = abs_checksum(hdr);
+            return hexafs_block_write(cur, buf);
+        }
+        uint32_t next = hexafs_abstraction_next_chain(cur);
+        if (!next) break;
+        cur = next;
     }
-    if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
-    int count = hdr->entry_count;
-    if (count >= HEXAFS_ABS_MAX_ENTRIES) return 0;
+    uint32_t new_block = hexafs_abstraction_create();
+    if (!new_block) return 0;
+    hexafs_abstraction_set_chain(cur, new_block);
+    uint8_t buf[HEXAFS_BLOCK_SIZE];
+    if (!hexafs_block_read(new_block, buf)) return 0;
+    hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
     int i = 0;
-    while (name[i] && i < 31) { hdr->entries[count].name[i] = name[i]; i++; }
-    hdr->entries[count].name[i] = 0;
-    hdr->entries[count].object_block = obj_block;
-    hdr->entries[count].type = type;
-    hdr->entry_count = count + 1;
+    while (name[i] && i < 31) { hdr->entries[0].name[i] = name[i]; i++; }
+    hdr->entries[0].name[i] = 0;
+    hdr->entries[0].object_block = obj_block;
+    hdr->entries[0].type = type;
+    hdr->entry_count = 1;
     hdr->checksum = abs_checksum(hdr);
-    return hexafs_block_write(abs_block, buf);
+    return hexafs_block_write(new_block, buf);
 }
 
 int hexafs_abstraction_find(uint32_t abs_block, const char *name, uint32_t *obj_block, uint8_t *type) {
-    uint8_t buf[HEXAFS_BLOCK_SIZE];
-    if (!hexafs_block_read(abs_block, buf)) return 0;
-    hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
-    if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
-    for (int i = 0; i < (int)hdr->entry_count; i++) {
-        int match = 1;
-        for (int j = 0; j < 32; j++) {
-            if (hdr->entries[i].name[j] != name[j]) { match = 0; break; }
-            if (name[j] == 0) break;
+    uint32_t cur = abs_block;
+    while (cur) {
+        uint8_t buf[HEXAFS_BLOCK_SIZE];
+        if (!hexafs_block_read(cur, buf)) return 0;
+        hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
+        if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
+        for (int i = 0; i < (int)hdr->entry_count; i++) {
+            int match = 1;
+            for (int j = 0; j < 32; j++) {
+                if (hdr->entries[i].name[j] != name[j]) { match = 0; break; }
+                if (name[j] == 0) break;
+            }
+            if (match) {
+                if (obj_block) *obj_block = hdr->entries[i].object_block;
+                if (type) *type = hdr->entries[i].type;
+                return 1;
+            }
         }
-        if (match) {
-            if (obj_block) *obj_block = hdr->entries[i].object_block;
-            if (type) *type = hdr->entries[i].type;
-            return 1;
-        }
+        cur = hexafs_abstraction_next_chain(cur);
     }
     return 0;
 }
 
 int hexafs_abstraction_remove_entry(uint32_t abs_block, const char *name) {
-    uint8_t buf[HEXAFS_BLOCK_SIZE];
-    if (!hexafs_block_read(abs_block, buf)) return 0;
-    hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
-    uint32_t ck = abs_checksum(hdr);
-    if (ck != hdr->checksum) return 0;
-    if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
-    int found = -1;
-    for (int i = 0; i < (int)hdr->entry_count; i++) {
-        int match = 1;
-        for (int j = 0; j < 32; j++) {
-            if (hdr->entries[i].name[j] != name[j]) { match = 0; break; }
-            if (name[j] == 0) break;
+    uint32_t cur = abs_block;
+    while (cur) {
+        uint8_t buf[HEXAFS_BLOCK_SIZE];
+        if (!hexafs_block_read(cur, buf)) return 0;
+        hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
+        uint32_t ck = abs_checksum(hdr);
+        if (ck != hdr->checksum) return 0;
+        if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
+        int found = -1;
+        for (int i = 0; i < (int)hdr->entry_count; i++) {
+            int match = 1;
+            for (int j = 0; j < 32; j++) {
+                if (hdr->entries[i].name[j] != name[j]) { match = 0; break; }
+                if (name[j] == 0) break;
+            }
+            if (match) { found = i; break; }
         }
-        if (match) { found = i; break; }
+        if (found >= 0) {
+            for (int i = found; i < (int)hdr->entry_count - 1; i++)
+                hdr->entries[i] = hdr->entries[i + 1];
+            hdr->entry_count--;
+            hdr->checksum = abs_checksum(hdr);
+            return hexafs_block_write(cur, buf);
+        }
+        cur = hexafs_abstraction_next_chain(cur);
     }
-    if (found < 0) return 0;
-    for (int i = found; i < (int)hdr->entry_count - 1; i++)
-        hdr->entries[i] = hdr->entries[i + 1];
-    hdr->entry_count--;
-    hdr->checksum = abs_checksum(hdr);
-    return hexafs_block_write(abs_block, buf);
+    return 0;
 }
 
 int hexafs_abstraction_list(uint32_t abs_block, void (*cb)(const char *name, uint32_t obj_block, uint8_t type)) {
-    uint8_t buf[HEXAFS_BLOCK_SIZE];
-    if (!hexafs_block_read(abs_block, buf)) return 0;
-    hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
-    if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return 0;
-    for (int i = 0; i < (int)hdr->entry_count; i++) {
-        if (cb) cb(hdr->entries[i].name, hdr->entries[i].object_block, hdr->entries[i].type);
+    int total = 0;
+    uint32_t cur = abs_block;
+    while (cur) {
+        uint8_t buf[HEXAFS_BLOCK_SIZE];
+        if (!hexafs_block_read(cur, buf)) return total;
+        hexafs_abs_header_t *hdr = (hexafs_abs_header_t *)buf;
+        if (hdr->magic != HEXAFS_ABSTRACT_MAGIC) return total;
+        for (int i = 0; i < (int)hdr->entry_count; i++) {
+            if (cb) cb(hdr->entries[i].name, hdr->entries[i].object_block, hdr->entries[i].type);
+            total++;
+        }
+        cur = hexafs_abstraction_next_chain(cur);
     }
-    return hdr->entry_count;
+    return total;
+}
+
+int hexafs_cache_flush_all(void) {
+    cache_flush_dirty();
+    if (alloc_bitmap_dirty) {
+        if (!hexafs_save_bitmap()) return 0;
+    }
+    return 1;
 }

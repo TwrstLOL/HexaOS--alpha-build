@@ -214,6 +214,124 @@ void hexafs_load_all(void) {
 static uint32_t cap_grant_storage[32];
 static int cap_grant_count = 0;
 
+static pimp_rule_t pimp_rules[PIMP_RULE_MAX];
+static int pimp_count = 0;
+
+int pimp_load_rules(void) {
+    pimp_count = 0;
+    memset(pimp_rules, 0, sizeof(pimp_rules));
+    uint32_t root_abs = sb_cache.root_snap_block;
+    if (!root_abs) return 0;
+    hexafs_snap_t snap;
+    if (!hexafs_block_read(root_abs, &snap)) return 0;
+    if (snap.magic != HEXAFS_SNAP_MAGIC) return 0;
+    uint32_t abs_block = snap.root_object_block;
+    if (!abs_block) return 0;
+    uint32_t pimp_block = 0;
+    if (!hexafs_abstraction_find(abs_block, ".pimp", &pimp_block, 0)) return 0;
+    if (!pimp_block) return 0;
+    uint32_t dsize = sizeof(pimp_rules);
+    uint8_t dtype;
+    if (!hexafs_object_read_data(pimp_block, pimp_rules, &dsize, &dtype)) return 0;
+    pimp_count = dsize / sizeof(pimp_rule_t);
+    if (pimp_count > PIMP_RULE_MAX) pimp_count = PIMP_RULE_MAX;
+    return 1;
+}
+
+int pimp_save_rules(void) {
+    if (!hexafs_mounted) return 0;
+    hexafs_tx_begin();
+    uint32_t root_abs = sb_cache.root_snap_block;
+    if (!root_abs) { hexafs_tx_abort(); return 0; }
+    hexafs_snap_t snap;
+    if (!hexafs_block_read(root_abs, &snap)) { hexafs_tx_abort(); return 0; }
+    if (snap.magic != HEXAFS_SNAP_MAGIC) { hexafs_tx_abort(); return 0; }
+    uint32_t abs_block = snap.root_object_block;
+    if (!abs_block) { hexafs_tx_abort(); return 0; }
+    uint32_t pimp_block = 0;
+    hexafs_abstraction_find(abs_block, ".pimp", &pimp_block, 0);
+    if (!pimp_block) {
+        pimp_block = hexafs_object_alloc(HEXAFS_CONFIG);
+        if (!pimp_block) { hexafs_tx_abort(); return 0; }
+        hexafs_abstraction_add_entry(abs_block, ".pimp", pimp_block, HEXAFS_CONFIG);
+    }
+    uint32_t data_size = (uint32_t)(pimp_count * sizeof(pimp_rule_t));
+    if (!hexafs_object_write_data(pimp_block, pimp_rules, data_size)) {
+        hexafs_tx_abort();
+        return 0;
+    }
+    hexafs_current_tx.new_root_block = abs_block;
+    hexafs_current_tx.dirty = 1;
+    hexafs_snap_create("pimp_update");
+    hexafs_tx_commit();
+    return 1;
+}
+
+int pimp_check(const char *username, uint32_t cap_type) {
+    for (int i = 0; i < pimp_count; i++) {
+        if (strcmp(pimp_rules[i].user, username) == 0) {
+            if (pimp_rules[i].allowed_caps == 0xFFFFFFFF) return 1;
+            if (pimp_rules[i].allowed_caps & cap_type) return 1;
+        }
+    }
+    return 0;
+}
+
+int pimp_rule_add(const char *username, uint32_t caps, int no_pass, int session_only) {
+    if (pimp_count >= PIMP_RULE_MAX) return 0;
+    for (int i = 0; i < pimp_count; i++) {
+        if (strcmp(pimp_rules[i].user, username) == 0) {
+            pimp_rules[i].allowed_caps = caps;
+            pimp_rules[i].no_pass = no_pass;
+            pimp_rules[i].session_only = session_only;
+            return 1;
+        }
+    }
+    strcpy(pimp_rules[pimp_count].user, username);
+    pimp_rules[pimp_count].allowed_caps = caps;
+    pimp_rules[pimp_count].no_pass = no_pass;
+    pimp_rules[pimp_count].session_only = session_only;
+    pimp_count++;
+    return 1;
+}
+
+int pimp_rule_remove(const char *username) {
+    for (int i = 0; i < pimp_count; i++) {
+        if (strcmp(pimp_rules[i].user, username) == 0) {
+            for (int j = i; j < pimp_count - 1; j++)
+                pimp_rules[j] = pimp_rules[j + 1];
+            pimp_count--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int pimp_rule_list(char *out, int out_len) {
+    int pos = 0;
+    const char *hdr = "Pimp rules (diese config):\n";
+    for (int i = 0; hdr[i] && pos < out_len - 1; i++) out[pos++] = hdr[i];
+    for (int i = 0; i < pimp_count; i++) {
+        char buf[16];
+        for (int j = 0; pimp_rules[i].user[j] && pos < out_len - 1; j++) out[pos++] = pimp_rules[i].user[j];
+        out[pos++] = ':';
+        out[pos++] = ' ';
+        itoa(pimp_rules[i].allowed_caps, buf, 16);
+        for (int j = 0; buf[j] && pos < out_len - 1; j++) out[pos++] = buf[j];
+        if (pimp_rules[i].no_pass) {
+            const char *np = " nopass";
+            for (int j = 0; np[j] && pos < out_len - 1; j++) out[pos++] = np[j];
+        }
+        if (pimp_rules[i].session_only) {
+            const char *so = " session";
+            for (int j = 0; so[j] && pos < out_len - 1; j++) out[pos++] = so[j];
+        }
+        out[pos++] = '\n';
+    }
+    if (pos < out_len) out[pos] = 0;
+    return pos;
+}
+
 int hexafs_cap_grant(uint32_t grantee_pid, uint32_t cap_type, uint32_t expires_tick, int delegatable) {
     if (cap_grant_count >= 32) return -1;
     if (!hexafs_current_tx.active) return -1;

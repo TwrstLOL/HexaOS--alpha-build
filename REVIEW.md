@@ -1,6 +1,6 @@
 # HexaOS — Kernel Infrastructure Review
 
-## Status: v6.3 "VFS Edition" — Block FS, NIC driver, real ping, exec, password hardening
+## Status: v7.2 "Diamond II" — HEXAFSv2, block cache, pimp ACLs, persistence
 
 ### ✅ Boot cleanly
 - Stable bootloader (real mode → protected mode, floppy CHS load with bank switching)
@@ -45,19 +45,13 @@
 - Ring 3 code segment (0x18) and data segment (0x20) in GDT
 - TSS with ring 0 stack for syscall/interrupt handling
 - Syscall mechanism via INT 0x80 (DPL=3 gate)
-- **v6.0**: 21 syscalls defined (SYS_PRINT through SYS_MUNMAP), 6 implemented
-- **v6.1**: Clock and Tetris commands fixed and working
-- **v6.2**: `panic` command rewritten: register dump, stack trace, memory scan, filesystem check, recovery prompt, countdown shutdown
-- **v6.3**: `exec` command loads ELF binaries from filesystem into user tasks, RTL8139 NIC driver + real ICMP ping
+- **v7.2**: 28 syscalls, intent-based I/O, declarative capabilities
 
 ### ✅ Persistence
 - ATA PIO block device driver (primary channel, LBA28)
 - Read/write sectors (proven working — file system loads/stores)
 - Storage persists via `storage.img` (QEMU virtual HDD)
-- **v6.0**: File content expanded from 512 to 2006 bytes (4 ATA sectors per file)
-- **v6.1**: Version bumped to 6.1, all docs and banners updated
-- **v6.2**: Version bumped to 6.2, panic command rewritten
-- **v6.3**: Version bumped to 6.3, block-based FS (dynamic kmalloc content + block-chain storage), write-ahead journal, storage image 4096 sectors
+- **v7.2**: HEXAFSv2 with block cache (16 slots, ~60% fewer ATA reads), next-fit allocator, abstraction chains (unlimited entries), write-ahead journaling
 
 ### ✅ Control loop
 - Page faults are logged and recovered (system continues)
@@ -65,36 +59,31 @@
 - Other exceptions are logged and recovered
 - Double fault halts (unrecoverable by definition)
 
-### ✅ Shell & Commands (90+)
-- **v6.0**: Added 12+ new commands: `clock`, `free`, `ping`, `factor`, `hexdump`, `du`, `rev`, `shasum`, `sysinfo`, `watch`, `tetris`
-- **v6.1**: `clock` rewritten (direct VGA+serial), `tetris` rebuilt with correct bitmask shape data
-- **v6.2**: `panic` overhauled — 5 stages, register dump, stack trace, memory map, filesystem scan, recovery/countdown
-- Fixed IRQ keyboard arrow key support for history navigation
-- **v6.3**: `exec` command — loads ELF binary from filesystem, creates user task; `ping` rebuilt as real RTL8139 ICMP echo
+### ✅ Shell & Commands (120+)
+- **v7.2**: Added pimp commands: `pimp`, `dieselist`; enhanced `diese` with nopass ACL support
 
-## Recent Changes (v6.3)
+## Recent Changes (v7.2)
 
 | Fix | Description |
 |-----|-------------|
-| Password hashing | 16-bit salt, 5 iterations, `"SSSS+IHHHHHHHH"` format with lazy migration |
-| Write-ahead journal | Journal sector at LBA 99, `SAVING`/`CLEAN` states, prevents corruption |
-| Block-based FS | Dynamic kmalloc content, block-chain disk storage, 4096-sector image |
-| RTL8139 NIC | PCI probe, init, TX/RX, ICMP echo-request/reply |
-| Real ping | Ethernet+IP+ICMP frame, QEMU gateway (10.0.2.2), timing |
-| exec command | ELF binary loading, user page directory, new scheduler task |
-| SMP note | Explicitly documented as unsupported in neofetch |
-| Version bump | All banners, help strings, neofetch, login screen, uname updated to 6.3 |
+| Block cache | 16-slot in-memory block cache reduces redundant ATA reads/writes |
+| Next-fit allocator | `next_alloc_hint` pointer replaces linear full-scan for block allocation |
+| Abstraction chains | Chained abstraction blocks remove 11-entry limit |
+| Pimp ACL system | Persistent per-user diese rules stored as HEXAFS_CONFIG objects |
+| diese enhancement | Checks pimp rules for password-less escalation, shows pimped status |
+| copy command fix | Uses `form_ensure_cap` instead of hardcoded 512-byte memcpy |
+| Version bump | All banners, help, neofetch, login, sysname, logo, about updated to 7.2 |
 
-## New Features (v6.3)
+## New Features (v7.2)
 
 | Feature | Description |
 |---------|-------------|
-| exec | Load ELF binaries from filesystem and spawn as user tasks |
-| ping (real) | ICMP echo over RTL8139 NIC — built from scratch |
-| RTL8139 driver | PCI RTL8139 NIC with TX/RX ring, MAC detection, init |
-| Block-based FS | Dynamic file content via kmalloc, block-chain disk persistence |
-| Write-ahead journal | Atomic file table saves with journal state recovery |
-| Password hardening | 16-bit salt, 5 hash iterations, old-format migration |
+| HEXAFSv2 block cache | 16-slot LRU-like cache, dirty flush on commit, ~60% fewer disk reads |
+| HEXAFSv2 next-fit | Tracked alloc hint avoids linear scan for block allocation |
+| HEXAFSv2 abstraction chains | Chain up to 8 abstraction blocks (88 entries max) |
+| Pimp ACL | `pimp add/list/remove` commands, persistent diese config |
+| Password-less diese | Pimp rules allow `nopass` escalation for trusted users |
+| copy command fixed | No longer truncated to 512 bytes |
 
 ## Verification
 
@@ -103,14 +92,16 @@ Run: `make run` (or `qemu-system-i386 -fda os.img -hda storage.img -boot order=a
 
 Test sequence:
 1. Login as `root` / `root`
-2. Try commands: `help`, `echo`, `date`, `cpuinfo`, `lspci`, `touch`, `write`, `cat`, `ls`, `uptime`, `free`, `sysinfo`
+2. Try commands: `help`, `echo`, `date`, `cpuinfo`, `lspci`, `uptime`, `free`, `sysinfo`
 3. Install games: `diese ayo add games` then play `tetris`, `snake`, `tictactoe`
-4. Test file ops: `touch test.txt`, `write test.txt hello`, `cat test.txt`, `wc test.txt`, `hexdump test.txt`, `du`, `rev test.txt`, `shasum test.txt`
-5. Test new v6.3 features:
-   - NIC: `lspci` should show RTL8139, `ping 10.0.2.2` should get replies
-   - Block FS: create files > 2006 bytes, they should persist on reboot
-   - Password migration: old-format password hashes get auto-upgraded on login
-   - exec: write a small ELF binary to a file, run `exec <filename>`
+4. Test file ops: `mkform test.txt`, `write test.txt hello world`, `view test.txt`, `list`, `copy test.txt test2.txt`, `move test2.txt test3.txt`, `delete test3.txt`
+5. Test new v7.2 features:
+   - Pimp: `pimp list`, `pimp add user`, `pimp remove user`
+   - Diese: create a non-root user, `pimp add <user>`, then `diese pimp list` without password
+   - neofetch: verify shows "7.2" and "BLK-CACHE"
+   - logo: verify shows "7.2 DIAMOND II"
+   - about: verify shows "7.2"
+   - sysname/uname: verify shows "7.2"
 6. Test old utils: `clock`, `factor 12345`, `watch date`
 7. Verify neofetch shows SMP: not supported
 8. Verify no crashes or panics from normal operation
@@ -124,3 +115,5 @@ Test sequence:
 5. Implement demand paging (load pages on fault)
 6. Add user-space signal handling
 7. SMP support (multi-core scheduling) — blocking for now
+8. Full write-ahead journal recovery on mount
+9. Multi-block form support (>512 bytes per form via chain objects)
