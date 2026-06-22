@@ -10,6 +10,7 @@ extern char *strcpy(char *dest, const char *src);
 extern int strcmp(const char *s1, const char *s2);
 extern void print_string(const char *str);
 extern void *kmalloc(size_t size);
+extern void kfree(void *ptr);
 extern int find_form(const char *name);
 extern void itoa(int num, char *str, int base);
 extern volatile uint32_t system_ticks;
@@ -330,6 +331,53 @@ int pimp_rule_list(char *out, int out_len) {
     }
     if (pos < out_len) out[pos] = 0;
     return pos;
+}
+
+int hexafs_users_save(const void *data, uint32_t size) {
+    if (!hexafs_mounted) return 0;
+    hexafs_tx_begin();
+    uint32_t root_abs = sb_cache.root_snap_block;
+    if (!root_abs) { hexafs_tx_abort(); return 0; }
+    hexafs_snap_t snap;
+    if (!hexafs_block_read(root_abs, &snap)) { hexafs_tx_abort(); return 0; }
+    if (snap.magic != HEXAFS_SNAP_MAGIC) { hexafs_tx_abort(); return 0; }
+    uint32_t abs_block = snap.root_object_block;
+    if (!abs_block) { hexafs_tx_abort(); return 0; }
+
+    uint32_t users_block = 0;
+    hexafs_abstraction_find(abs_block, ".users", &users_block, 0);
+    if (!users_block) {
+        users_block = hexafs_object_alloc(HEXAFS_CONFIG);
+        if (!users_block) { hexafs_tx_abort(); return 0; }
+        hexafs_abstraction_add_entry(abs_block, ".users", users_block, HEXAFS_CONFIG);
+    }
+
+    if (!hexafs_object_write_data(users_block, data, size)) {
+        hexafs_tx_abort();
+        return 0;
+    }
+    hexafs_current_tx.new_root_block = abs_block;
+    hexafs_current_tx.dirty = 1;
+    hexafs_snap_create("users_update");
+    hexafs_tx_commit();
+    return 1;
+}
+
+int hexafs_users_load(void *buf, uint32_t *size) {
+    uint32_t root_abs = sb_cache.root_snap_block;
+    if (!root_abs) return 0;
+    hexafs_snap_t snap;
+    if (!hexafs_block_read(root_abs, &snap)) return 0;
+    if (snap.magic != HEXAFS_SNAP_MAGIC) return 0;
+    uint32_t abs_block = snap.root_object_block;
+    if (!abs_block) return 0;
+    uint32_t users_block = 0;
+    if (!hexafs_abstraction_find(abs_block, ".users", &users_block, 0)) return 0;
+    if (!users_block) return 0;
+
+    uint8_t dtype;
+    if (!hexafs_object_read_data(users_block, buf, size, &dtype)) return 0;
+    return 1;
 }
 
 int hexafs_cap_grant(uint32_t grantee_pid, uint32_t cap_type, uint32_t expires_tick, int delegatable) {

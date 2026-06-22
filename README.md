@@ -19,6 +19,8 @@ A 32-bit protected-mode hobby OS written in C and x86 assembly, booting from a f
 | **Abstraction Chains** | Support for chained abstraction blocks removes 11-entry limit (HEXAFS_ABS_CHAIN_MAX=8) |
 | **Write-Ahead Journal** | Crash-safe metadata updates via journal blocks before commit |
 | **Cache Coalescing** | Dirty cache lines are flushed on commit for atomic persistence |
+| **User Persistence** | User accounts saved/loaded as `.users` HEXAFS config object |
+| **Framebuffer Driver** | Bochs VBE detection, `mode` command, double buffering |
 
 ### Pimp ACL System (diese config)
 
@@ -34,17 +36,42 @@ Pimp:     pimp <user>         — add user with full nopass
 
 Pimp rules are stored persistently as `HEXAFS_CONFIG` objects in the form store, loaded at boot.
 
-### New Shell Commands (3 added, 120+ total)
+### New Shell Commands (5 added, 120+ total)
 
 ```
 Pimp:     pimp, diese, dieselist
+Video:    mode list, mode set, mode double, mode clear, mode color
 ```
 
 ### Other Changes
+- **User persistence** — user accounts (name, password hash, role) now saved to HEXAFS as `.users` config object, loaded on boot
+- **Framebuffer driver** — new `fb.c`/`vbe.h` with Bochs VBE detection, 800x600x32 default mode, `mode` command for resolution switching
+- **Double buffering** — `mode double` enables software double buffer, `mode clear`/`mode color` for framebuffer ops
 - **diese enhanced** — checks pimp rules for password-less escalation, shows pimped status
 - **copy command fixed** — now uses proper `form_ensure_cap` instead of hardcoded 512-byte memcpy
-- **Boot sequence** — pimp rules loaded after HEXAFS mount
+- **Boot sequence** — framebuffer init + pimp rules loaded after HEXAFS mount
 - **Memory efficiency** — block cache reduces heap allocations for repeated reads
+
+## User Persistence
+
+User accounts are now saved to disk as a `.users` HEXAFS config object:
+- **root** account created on first boot
+- All `useradd`, `passwd`, and login `new` operations persist immediately
+- On subsequent boots, users are loaded from disk automatically
+
+## Framebuffer (GUI Prep)
+
+A framebuffer driver with Bochs VBE support prepares HexaOS for a future graphical environment:
+
+```
+mode list              — show available video modes
+mode set <w> <h> [bpp] — switch resolution (e.g., mode set 1024 768 32)
+mode double            — enable software double buffering
+mode clear             — clear the screen to black
+mode color <r> <g> <b> — fill screen with RGB color
+```
+
+The framebuffer is initialized during boot and shown in neofetch when available.
 
 ### Existing Commands (120+ total)
 ```

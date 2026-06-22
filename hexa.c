@@ -15,6 +15,7 @@
 #include "replay.h"
 #include "hex.h"
 #include "net.h"
+#include "vbe.h"
 
 #define VGA_BUFFER ((uint16_t *)0xB8000)
 
@@ -611,6 +612,7 @@ void cmd_help() {
   print_string("          grantcap, revokecap, hexpack, inbox, sendevent\n");
   print_string("          pipes, timels, timediff, timeat\n");
   print_string(" Pimp:    pimp, diese, dieselist\n");
+  print_string(" Video:   mode list/set/double/clear/color\n");
   print_string("------------------------------------\n");
   print_string(" Pkg mgmt: ayo help\n");
 }
@@ -1496,9 +1498,15 @@ void cmd_neofetch(void) {
   itoa(s, buf, 10); print_string(buf);
   print_string("          │\n");
   // Memory
-  print_string(" │  Memory:  VGA 4000B  Heap: ");
+  print_string(" │  Memory:  Heap: ");
   itoa(1024, buf, 10); print_string(buf); print_string("KB");
-  print_string("       │\n");
+  if (fb_available()) {
+    print_string(" FB: ");
+    itoa(fb_info.x_res, buf, 10); print_string(buf);
+    print_string("x");
+    itoa(fb_info.y_res, buf, 10); print_string(buf);
+  }
+  print_string("    │\n");
   // Commands / features
   print_string(" │  Shell:   HEXA CLI v7.2  80x25  │\n");
   print_string(" │  Cache:   ");
@@ -1524,6 +1532,21 @@ void cmd_neofetch(void) {
 
 // ---- User System ----
 void init_users(void) {
+  uint8_t raw[832];
+  uint32_t raw_sz = sizeof(raw);
+  if (hexafs_users_load(raw, &raw_sz) && raw_sz >= 4) {
+    int count = (int)(raw[0] | ((uint32_t)raw[1] << 8) | ((uint32_t)raw[2] << 16) | ((uint32_t)raw[3] << 24));
+    if (count >= 1 && count <= 12 && raw_sz >= 4 + (uint32_t)count * 68) {
+      for (int i = 0; i < count; i++) {
+        for (int j = 0; j < 32; j++) u_table[i].name[j] = (char)raw[4 + i * 68 + j];
+        for (int j = 0; j < 32; j++) u_table[i].pass_hash[j] = (char)raw[4 + i * 68 + 32 + j];
+        u_table[i].is_root = (int)(raw[4 + i * 68 + 64] & 0xFF);
+      }
+      u_count = count;
+      u_cur = 0;
+      return;
+    }
+  }
   strcpy(u_table[0].name, "root");
   encode_pwd(u_table[0].pass_hash, "root", 0xA5);
   u_table[0].is_root = 1;
@@ -1758,6 +1781,7 @@ void cmd_useradd(const char *name) {
   encode_pwd(u_table[u_count].pass_hash, pwbuf, ticks & 0xFFFF);
   u_table[u_count].is_root = 0;
   u_count++;
+  save_data();
   print_string("User created.\n");
 }
 
@@ -1770,6 +1794,7 @@ void cmd_passwd(const char *args) {
   print_string("New password: ");
   get_line(newbuf, NAME_MAX);
   encode_pwd(u_table[u_cur].pass_hash, newbuf, ticks & 0xFFFF);
+  save_data();
   print_string("Password changed.\n");
 }
 
@@ -2697,6 +2722,19 @@ static int save_data(void) {
   if (!disk_ok) return 0;
   if (!hexafs_mounted) return 0;
   hexafs_save_all();
+  uint8_t raw[832];
+  uint32_t off = 0;
+  raw[off++] = (uint8_t)(u_count & 0xFF);
+  raw[off++] = (uint8_t)((u_count >> 8) & 0xFF);
+  raw[off++] = (uint8_t)((u_count >> 16) & 0xFF);
+  raw[off++] = (uint8_t)((u_count >> 24) & 0xFF);
+  for (int i = 0; i < u_count; i++) {
+    for (int j = 0; j < 32; j++) raw[off++] = (uint8_t)u_table[i].name[j];
+    for (int j = 0; j < 32; j++) raw[off++] = (uint8_t)u_table[i].pass_hash[j];
+    raw[off++] = (uint8_t)(u_table[i].is_root & 0xFF);
+    raw[off++] = 0; raw[off++] = 0; raw[off++] = 0;
+  }
+  hexafs_users_save(raw, off);
   return 1;
 }
 
@@ -2984,6 +3022,68 @@ void cmd_dieselist(void) {
     print_string(buf);
 }
 
+void cmd_mode(const char *args) {
+    if (strcmp(args, "list") == 0 || args[0] == 0) {
+        print_string("Available video modes:\n");
+        print_string("  800x600 32bpp (default)\n");
+        print_string("  1024x768 32bpp\n");
+        print_string("Usage: mode set <width> <height> <bpp>\n");
+        return;
+    }
+    if (strcmp(args, "set") == 0) {
+        char w_s[8]={0}, h_s[8]={0}, b_s[8]={0};
+        int i = 4, j = 0;
+        while (args[i] == ' ') i++;
+        j = 0; while (args[i] && args[i] != ' ' && j < 7) { w_s[j++] = args[i++]; }
+        while (args[i] == ' ') i++;
+        j = 0; while (args[i] && args[i] != ' ' && j < 7) { h_s[j++] = args[i++]; }
+        while (args[i] == ' ') i++;
+        j = 0; while (args[i] && j < 7) { b_s[j++] = args[i++]; }
+        if (!w_s[0] || !h_s[0]) { print_string("Usage: mode set <width> <height> [bpp]\n"); return; }
+        uint16_t w = (uint16_t)atoi(w_s);
+        uint16_t h = (uint16_t)atoi(h_s);
+        uint16_t b = b_s[0] ? (uint16_t)atoi(b_s) : 32;
+        if (fb_set_mode(w, h, b)) {
+            print_string("Mode set: ");
+            print_string(w_s); print_string("x"); print_string(h_s);
+            print_string(" "); itoa(b, w_s, 10); print_string(w_s);
+            print_string("bpp\n");
+        } else {
+            print_string("Mode set failed.\n");
+        }
+        return;
+    }
+    if (strcmp(args, "double") == 0) {
+        fb_double_buf();
+        print_string("Double buffer enabled.\n");
+        return;
+    }
+    if (strcmp(args, "clear") == 0) {
+        fb_clear(0x00000000);
+        print_string("Screen cleared.\n");
+        return;
+    }
+    if (strcmp(args, "color") == 0) {
+        char r_s[8]={0}, g_s[8]={0}, b_s[8]={0};
+        int i = 6, j = 0;
+        while (args[i] == ' ') i++;
+        j = 0; while (args[i] && args[i] != ' ' && j < 7) { r_s[j++] = args[i++]; }
+        while (args[i] == ' ') i++;
+        j = 0; while (args[i] && args[i] != ' ' && j < 7) { g_s[j++] = args[i++]; }
+        while (args[i] == ' ') i++;
+        j = 0; while (args[i] && j < 7) { b_s[j++] = args[i++]; }
+        if (!r_s[0]) { print_string("Usage: mode color <r> <g> <b>\n"); return; }
+        uint32_t rv = (uint32_t)(atoi(r_s) & 0xFF);
+        uint32_t gv = (uint32_t)(atoi(g_s) & 0xFF);
+        uint32_t bv = (uint32_t)(atoi(b_s) & 0xFF);
+        uint32_t color = (rv << 16) | (gv << 8) | bv;
+        fb_clear(color);
+        print_string("Screen filled.\n");
+        return;
+    }
+    print_string("Usage: mode [list|set|double|clear|color]\n");
+}
+
 // ---- Command Dispatch ----
 static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "help") == 0) {
@@ -3063,6 +3163,7 @@ static int execute_cmd(const char *cmd, char *args) {
   if (strcmp(cmd, "logo") == 0) { cmd_logo(); return 1; }
   if (strcmp(cmd, "pimp") == 0) { cmd_pimp(args); return 1; }
   if (strcmp(cmd, "dieselist") == 0) { cmd_dieselist(); return 1; }
+  if (strcmp(cmd, "mode") == 0) { cmd_mode(args); return 1; }
   if (strcmp(cmd, "sl") == 0) { cmd_sl(); return 1; }
   if (strcmp(cmd, "morse") == 0) { cmd_morse(args); return 1; }
   if (strcmp(cmd, "russian") == 0) { cmd_russian(); return 1; }
@@ -3220,6 +3321,9 @@ void kernel_main(void) {
   print_color("[BOOT] Initializing network stack...\n", 0x0A);
   net_init();
   net_register_observers();
+
+  print_color("[BOOT] Initializing framebuffer...\n", 0x0A);
+  fb_init();
 
   print_color("[BOOT] Initializing task manager...\n", 0x0A);
   proc_init();

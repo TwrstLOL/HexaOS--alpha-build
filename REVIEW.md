@@ -70,6 +70,8 @@
 | Next-fit allocator | `next_alloc_hint` pointer replaces linear full-scan for block allocation |
 | Abstraction chains | Chained abstraction blocks remove 11-entry limit |
 | Pimp ACL system | Persistent per-user diese rules stored as HEXAFS_CONFIG objects |
+| User persistence | User accounts saved/loaded as `.users` config object in HEXAFS |
+| Framebuffer driver | Bochs VBE detection, `fb.c`/`vbe.h`, mode switching, double buffer |
 | diese enhancement | Checks pimp rules for password-less escalation, shows pimped status |
 | copy command fix | Uses `form_ensure_cap` instead of hardcoded 512-byte memcpy |
 | Version bump | All banners, help, neofetch, login, sysname, logo, about updated to 7.2 |
@@ -81,6 +83,8 @@
 | HEXAFSv2 block cache | 16-slot LRU-like cache, dirty flush on commit, ~60% fewer disk reads |
 | HEXAFSv2 next-fit | Tracked alloc hint avoids linear scan for block allocation |
 | HEXAFSv2 abstraction chains | Chain up to 8 abstraction blocks (88 entries max) |
+| User persistence | `init_users()` checks disk first, `save_data()` packs users, survives reboot |
+| Framebuffer driver | VBE detection via Bochs I/O ports, `mode` command, double buffering |
 | Pimp ACL | `pimp add/list/remove` commands, persistent diese config |
 | Password-less diese | Pimp rules allow `nopass` escalation for trusted users |
 | copy command fixed | No longer truncated to 512 bytes |
@@ -117,3 +121,6 @@ Test sequence:
 7. SMP support (multi-core scheduling) — blocking for now
 8. Full write-ahead journal recovery on mount
 9. Multi-block form support (>512 bytes per form via chain objects)
+10. VESA VBE real-mode mode detection during boot
+11. Graphical terminal / GUI window server
+12. Hardware-accelerated framebuffer (VBE linear frame buffer)

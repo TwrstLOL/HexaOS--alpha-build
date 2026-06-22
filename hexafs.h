@@ -79,5 +79,7 @@ int pimp_check(const char *username, uint32_t cap_type);
 int pimp_rule_add(const char *username, uint32_t caps, int no_pass, int session_only);
 int pimp_rule_remove(const char *username);
 int pimp_rule_list(char *out, int out_len);
+int hexafs_users_save(const void *data, uint32_t size);
+int hexafs_users_load(void *buf, uint32_t *size);
 
 #endif
