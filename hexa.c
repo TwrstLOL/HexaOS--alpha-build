@@ -606,11 +606,8 @@ void cmd_help() {
   if (find_form(".games") >= 0)
     print_string("          tetris\n");
   print_string(" Info:    sysname, uptime, about, mem, beep, history\n");
-  print_string("          dmesg, free, sysinfo\n");
-  print_string(" Diamond: kstat, netstat, ifconfig, netlog, netrollback\n");
-  print_string("          replay, bootlog, bootpolicy, setfallback, caps\n");
-  print_string("          grantcap, revokecap, hexpack, inbox, sendevent\n");
-  print_string("          pipes, timels, timediff, timeat\n");
+  print_string("          dmesg, free, sysinfo, kstat, netstat\n");
+  print_string("          caps, inbox, sendevent, pipes, bootlog\n");
   print_string(" Pimp:    pimp, diese, dieselist\n");
   print_string(" Video:   mode list/set/double/clear/color\n");
   print_string("------------------------------------\n");
@@ -1045,162 +1042,162 @@ void cmd_snake(void) {
 }
 
 // ----- TETRIS GAME -----
+// ----- TETRIS (v7.2 rewrite — SRS ghost/next/hold/wall-kicks) -----
 #define TET_TW 10
 #define TET_TH 20
-#define TET_TOX 30
+#define TET_TOX 28
 #define TET_TOY 1
 
-// Shape bitmasks: 16 bits per rotation, MSB row-major: bit(row*4 + col) = 1 means filled
-static const uint16_t tetris_shapes[7][4] = {
-  {0x0F00, 0x4444, 0x0F00, 0x4444}, // I
-  {0x0660, 0x0660, 0x0660, 0x0660}, // O
-  {0x04E0, 0x0464, 0x00E4, 0x04C4}, // T
-  {0x06C0, 0x08C4, 0x06C0, 0x08C4}, // S
-  {0x0C60, 0x04C8, 0x0C60, 0x04C8}, // Z
-  {0x08E0, 0x0644, 0x00E2, 0x044C}, // J
-  {0x02E0, 0x0446, 0x00E8, 0x0C44}, // L
+static const uint16_t TET_SH[7][4]={
+  {0x0F00,0x2222,0x0F00,0x2222},
+  {0x6600,0x6600,0x6600,0x6600},
+  {0x4E00,0x4640,0x0E40,0x4C40},
+  {0x6C00,0x8C40,0x6C00,0x8C40},
+  {0xC600,0x4C80,0xC600,0x4C80},
+  {0x8E00,0x6440,0x0E20,0x44C0},
+  {0x2E00,0x4460,0x0E80,0xC440},
 };
-static const int tetris_colors[7] = {0x0B, 0x0E, 0x0D, 0x0A, 0x0C, 0x09, 0x07};
-static int tet_board[TET_TH][TET_TW];
-static int tet_px, tet_py, tet_type, tet_rot, tet_score, tet_lines, tet_level, tet_go, tet_drop;
+static const int TET_CO[7]={0x0B,0x0E,0x0D,0x0A,0x0C,0x09,0x07};
+static const char TET_CH[7]={178,219,177,176,254,248,216};
 
-#define TET_CELL(mask, y, x) (((mask) >> (15 - ((y)*4 + (x)))) & 1)
+static int tet_b[TET_TH][TET_TW];
+static int tet_px,tet_py,tet_t,tet_r,tet_sc,tet_ln,tet_lv,tet_go,tet_dc;
+static int tet_nx[4],tet_hd,tet_hu;
 
-static int tet_check_collision(int type, int rot, int bx, int by) {
-  uint16_t mask = tetris_shapes[type][rot & 3];
-  for (int y = 0; y < 4; y++)
-    for (int x = 0; x < 4; x++)
-      if (TET_CELL(mask, y, x)) {
-        int nx = bx + x, ny = by + y;
-        if (nx < 0 || nx >= TET_TW || ny >= TET_TH) return 1;
-        if (ny >= 0 && tet_board[ny][nx]) return 1;
-      }
+static int tet_col(int t,int r,int bx,int by){
+  uint16_t m=TET_SH[t][r];
+  for(int y=0;y<4;y++)for(int x=0;x<4;x++)
+    if((m>>(15-(y*4+x)))&1){int nx=bx+x,ny=by+y;
+    if(nx<0||nx>=TET_TW||ny>=TET_TH)return 1;
+    if(ny>=0&&tet_b[ny][nx])return 1;}
   return 0;
 }
 
-static void tet_lock_piece(void) {
-  uint16_t mask = tetris_shapes[tet_type][tet_rot & 3];
-  for (int y = 0; y < 4; y++)
-    for (int x = 0; x < 4; x++)
-      if (TET_CELL(mask, y, x)) {
-        int bx = tet_px + x, by = tet_py + y;
-        if (by >= 0 && by < TET_TH && bx >= 0 && bx < TET_TW)
-          tet_board[by][bx] = tet_type + 1;
-      }
+static int tet_wk(int t,int r,int *px,int *py){
+  if(!tet_col(t,r,*px,*py))return 1;
+  int k[][2]={{-1,0},{1,0},{0,-1},{-1,-1},{1,-1},{-2,0},{2,0}};
+  for(int i=0;i<7;i++){int nx=*px+k[i][0],ny=*py+k[i][1];
+    if(!tet_col(t,r,nx,ny)){*px=nx;*py=ny;return 1;}}
+  return 0;
 }
 
-static int tet_clear_lines(void) {
-  int cleared = 0;
-  for (int y = 0; y < TET_TH; y++) {
-    int full = 1;
-    for (int x = 0; x < TET_TW; x++)
-      if (!tet_board[y][x]) { full = 0; break; }
-    if (full) {
-      cleared++;
-      for (int ky = y; ky > 0; ky--)
-        for (int kx = 0; kx < TET_TW; kx++)
-          tet_board[ky][kx] = tet_board[ky - 1][kx];
-      for (int kx = 0; kx < TET_TW; kx++) tet_board[0][kx] = 0;
-    }
-  }
-  return cleared;
+static void tet_lk(void){
+  uint16_t m=TET_SH[tet_t][tet_r];
+  for(int y=0;y<4;y++)for(int x=0;x<4;x++)
+    if((m>>(15-(y*4+x)))&1){int bx=tet_px+x,by=tet_py+y;
+    if(by>=0&&by<TET_TH&&bx>=0&&bx<TET_TW)tet_b[by][bx]=tet_t+1;}
 }
 
-static void tet_new_piece(void) {
-  tet_type = rand() % 7;
-  tet_rot = 0;
-  tet_px = (TET_TW - 4) / 2;
-  tet_py = 0;
+static int tet_cl(void){
+  int c=0;
+  for(int y=0;y<TET_TH;y++){int f=1;
+    for(int x=0;x<TET_TW;x++)if(!tet_b[y][x]){f=0;break;}
+    if(f){c++;for(int ky=y;ky>0;ky--)for(int kx=0;kx<TET_TW;kx++)tet_b[ky][kx]=tet_b[ky-1][kx];
+    for(int kx=0;kx<TET_TW;kx++)tet_b[0][kx]=0;}}
+  return c;
 }
 
-static void tet_draw_board(void) {
-  // Clear playfield area
-  for (int y = 0; y < TET_TH; y++)
-    for (int x = 0; x < TET_TW; x++) {
-      int v = tet_board[y][x];
-      if (v)
-        VGA_BUFFER[(TET_TOY + 1 + y) * 80 + TET_TOX + 1 + x] = (tetris_colors[(v - 1) % 7] << 8) | '#';
-      else
-        VGA_BUFFER[(TET_TOY + 1 + y) * 80 + TET_TOX + 1 + x] = (0x00 << 8) | ' ';
-    }
-  // Draw current piece
-  uint16_t mask = tetris_shapes[tet_type][tet_rot & 3];
-  for (int y = 0; y < 4; y++)
-    for (int x = 0; x < 4; x++)
-      if (TET_CELL(mask, y, x)) {
-        int sy = tet_py + y, sx = tet_px + x;
-        if (sy >= 0 && sy < TET_TH && sx >= 0 && sx < TET_TW)
-          VGA_BUFFER[(TET_TOY + 1 + sy) * 80 + TET_TOX + 1 + sx] = (tetris_colors[tet_type] << 8) | '@';
-      }
-  // Update sidebar
-  char buf[16];
-  cursor_x = TET_TW + 4; cursor_y = 3;
-  print_string("Score: "); itoa(tet_score, buf, 10); print_string(buf); print_string("   ");
-  cursor_x = TET_TW + 4; cursor_y = 4;
-  print_string("Lines: "); itoa(tet_lines, buf, 10); print_string(buf); print_string("   ");
-  cursor_x = TET_TW + 4; cursor_y = 5;
-  print_string("Level: "); itoa(tet_level, buf, 10); print_string(buf); print_string("   ");
+static int tet_dd(void){
+  int gy=tet_py;while(!tet_col(tet_t,tet_r,tet_px,gy+1))gy++;
+  return gy-tet_py;
 }
 
-void cmd_tetris(void) {
-  if (find_form(".games") < 0) {
-    print_string("Package required: ayo add games\n");
-    print_string("(use 'diese' if not root)\n");
-    return;
-  }
-  memset(tet_board, 0, sizeof(tet_board));
-  tet_score = 0; tet_lines = 0; tet_level = 1; tet_go = 0; tet_drop = 0;
+static void tet_dw(void){
+  for(int y=0;y<TET_TH;y++)for(int x=0;x<TET_TW;x++){
+    int v=tet_b[y][x];
+    uint16_t*c=&VGA_BUFFER[(TET_TOY+1+y)*80+TET_TOX+1+x];
+    if(v)*c=(TET_CO[(v-1)%7]<<8)|TET_CH[(v-1)%7];else *c=0x0000;}
+  int gy=tet_py+tet_dd();
+  uint16_t gm=TET_SH[tet_t][tet_r];
+  for(int y=0;y<4;y++)for(int x=0;x<4;x++)
+    if((gm>>(15-(y*4+x)))&1){int sy=gy+y,sx=tet_px+x;
+      if(sy>=0&&sy<TET_TH&&sx>=0&&sx<TET_TW&&!tet_b[sy][sx])
+        VGA_BUFFER[(TET_TOY+1+sy)*80+TET_TOX+1+sx]=((TET_CO[tet_t]>>1|4)<<8)|'.';}
+  uint16_t pm=TET_SH[tet_t][tet_r];
+  for(int y=0;y<4;y++)for(int x=0;x<4;x++)
+    if((pm>>(15-(y*4+x)))&1){int sy=tet_py+y,sx=tet_px+x;
+      if(sy>=0&&sy<TET_TH&&sx>=0&&sx<TET_TW)
+        VGA_BUFFER[(TET_TOY+1+sy)*80+TET_TOX+1+sx]=(TET_CO[tet_t]<<8)|TET_CH[tet_t];}
+  char b[16];
+  cursor_x=TET_TW+6;cursor_y=2;print_string("SCORE");
+  cursor_x=TET_TW+6;cursor_y=3;itoa(tet_sc,b,10);print_string(b);print_string("   ");
+  cursor_x=TET_TW+6;cursor_y=5;print_string("LINES");
+  cursor_x=TET_TW+6;cursor_y=6;itoa(tet_ln,b,10);print_string(b);print_string("   ");
+  cursor_x=TET_TW+6;cursor_y=8;print_string("LEVEL");
+  cursor_x=TET_TW+6;cursor_y=9;itoa(tet_lv,b,10);print_string(b);print_string("   ");
+  cursor_x=TET_TW+6;cursor_y=11;print_string("NEXT");
+  for(int i=0;i<3;i++){uint16_t nm=TET_SH[tet_nx[i]][0];
+    for(int y=0;y<4;y++)for(int x=0;x<4;x++){
+      uint16_t*c=&VGA_BUFFER[(TET_TOY+6+i*4+y)*80+TET_TOX+18+x];
+      if((nm>>(15-(y*4+x)))&1)*c=(TET_CO[tet_nx[i]]<<8)|TET_CH[tet_nx[i]];
+      else *c=0x0000;}}
+  if(tet_hd>=0){
+    cursor_x=TET_TW+6;cursor_y=16;print_string("HOLD");
+    uint16_t hm=TET_SH[tet_hd][0];
+    for(int y=0;y<4;y++)for(int x=0;x<4;x++){
+      uint16_t*c=&VGA_BUFFER[(TET_TOY+10+y)*80+TET_TOX+18+x];
+      if((hm>>(15-(y*4+x)))&1)*c=(TET_CO[tet_hd]<<8)|TET_CH[tet_hd];
+      else *c=0x0000;}}
+}
+
+void cmd_tetris(void){
+  if(find_form(".games")<0){print_string("Package required: ayo add games\n");
+    print_string("(use 'diese' if not root)\n");return;}
+  memset(tet_b,0,sizeof(tet_b));
+  tet_sc=0;tet_ln=0;tet_lv=1;tet_go=0;tet_dc=0;tet_hd=-1;tet_hu=0;
   clear_screen();
-  for (int x = 0; x < TET_TW + 2; x++) {
-    VGA_BUFFER[TET_TOY * 80 + TET_TOX + x] = 0x0F << 8 | '#';
-    VGA_BUFFER[(TET_TOY + TET_TH + 1) * 80 + TET_TOX + x] = 0x0F << 8 | '#';
-  }
-  for (int y = 0; y < TET_TH + 2; y++) {
-    VGA_BUFFER[(TET_TOY + y) * 80 + TET_TOX] = 0x0F << 8 | '#';
-    VGA_BUFFER[(TET_TOY + y) * 80 + TET_TOX + TET_TW + 1] = 0x0F << 8 | '#';
-  }
-  cursor_x = 40; cursor_y = 0;
-  print_string("TETRIS");
-  cursor_x = 0; cursor_y = 22;
-  print_string("A:Left D:Right W:Rotate S:Drop Q:Quit");
-  tet_new_piece();
-  while (!tet_go) {
-    do_tick(); tet_drop++;
-    if (kb_hit()) {
-      char c = getch_nb();
-      if (c == 'a' || c == 'A') { if (!tet_check_collision(tet_type, tet_rot, tet_px - 1, tet_py)) tet_px--; }
-      else if (c == 'd' || c == 'D') { if (!tet_check_collision(tet_type, tet_rot, tet_px + 1, tet_py)) tet_px++; }
-      else if (c == 'w' || c == 'W') { int nr = (tet_rot + 1) & 3; if (!tet_check_collision(tet_type, nr, tet_px, tet_py)) tet_rot = nr; }
-      else if (c == 's' || c == 'S') { if (!tet_check_collision(tet_type, tet_rot, tet_px, tet_py + 1)) { tet_py++; tet_drop = 0; } }
-      else if (c == 'q' || c == 'Q') { tet_go = 1; break; }
+  for(int i=0;i<4;i++)tet_nx[i]=rand()%7;
+  tet_t=tet_nx[0];tet_r=0;tet_px=(TET_TW-4)/2;tet_py=0;
+  for(int i=0;i<3;i++)tet_nx[i]=tet_nx[i+1];
+  tet_nx[3]=rand()%7;
+  for(int x=0;x<TET_TW+2;x++){
+    VGA_BUFFER[TET_TOY*80+TET_TOX+x]=0x0F<<8|'#';
+    VGA_BUFFER[(TET_TOY+TET_TH+1)*80+TET_TOX+x]=0x0F<<8|'#';}
+  for(int y=0;y<TET_TH+2;y++){
+    VGA_BUFFER[(TET_TOY+y)*80+TET_TOX]=0x0F<<8|'#';
+    VGA_BUFFER[(TET_TOY+y)*80+TET_TOX+TET_TW+1]=0x0F<<8|'#';}
+  cursor_x=37;cursor_y=0;print_string("TETRIS v7.2");
+  cursor_x=0;cursor_y=23;
+  print_string("A:Left D:Right W:Rot C:Hold Space:HardDrop");
+  while(!tet_go){
+    do_tick();tet_dc++;
+    if(kb_hit()){
+      char c=getch_nb();
+      if(c=='a'||c=='A'){if(!tet_col(tet_t,tet_r,tet_px-1,tet_py))tet_px--;}
+      else if(c=='d'||c=='D'){if(!tet_col(tet_t,tet_r,tet_px+1,tet_py))tet_px++;}
+      else if(c=='w'||c=='W'){int nr=(tet_r+1)&3;int nx=tet_px,ny=tet_py;
+        if(tet_wk(tet_t,nr,&nx,&ny)){tet_r=nr;tet_px=nx;tet_py=ny;}}
+      else if(c=='s'||c=='S'){if(!tet_col(tet_t,tet_r,tet_px,tet_py+1)){tet_py++;tet_dc=0;tet_sc++;}}
+      else if(c==' '){int d=tet_dd();tet_py+=d;tet_dc=999;tet_sc+=d*2;}
+      else if(c=='c'||c=='C'){
+        if(!tet_hu){int tmp=tet_hd;tet_hd=tet_t;tet_hu=1;
+          if(tmp>=0){tet_t=tmp;tet_r=0;tet_px=(TET_TW-4)/2;tet_py=0;}
+          else{tet_t=tet_nx[0];tet_r=0;tet_px=(TET_TW-4)/2;tet_py=0;
+            for(int i=0;i<3;i++)tet_nx[i]=tet_nx[i+1];
+            tet_nx[3]=rand()%7;}}}
+      else if(c=='q'||c=='Q'){tet_go=1;break;}
     }
-    int ds = 20 - tet_level * 2;
-    if (ds < 3) ds = 3;
-    if (tet_drop >= ds) {
-      tet_drop = 0;
-      if (!tet_check_collision(tet_type, tet_rot, tet_px, tet_py + 1)) {
-        tet_py++;
-      } else {
-        tet_lock_piece();
-        int cl = tet_clear_lines();
-        if (cl > 0) { tet_lines += cl; tet_score += cl * 100 * tet_level; tet_level = (tet_lines / 5) + 1; }
-        tet_new_piece();
-        if (tet_check_collision(tet_type, tet_rot, tet_px, tet_py)) { tet_go = 2; break; }
-      }
-    }
-    tet_draw_board();
+    int ds=30-tet_lv*2;if(ds<2)ds=2;
+    if(tet_dc>=ds){tet_dc=0;
+      if(!tet_col(tet_t,tet_r,tet_px,tet_py+1)){tet_py++;}
+      else{tet_lk();int cl=tet_cl();
+        if(cl>0){tet_ln+=cl;tet_sc+=cl*100*tet_lv;
+          if(cl>=4)tet_sc+=400*tet_lv;
+          tet_lv=(tet_ln/5)+1;}
+        tet_t=tet_nx[0];tet_r=0;tet_px=(TET_TW-4)/2;tet_py=0;tet_hu=0;
+        for(int i=0;i<3;i++)tet_nx[i]=tet_nx[i+1];
+        tet_nx[3]=rand()%7;
+        if(tet_col(tet_t,tet_r,tet_px,tet_py)){tet_go=2;break;}}}
+    tet_dw();
   }
   clear_screen();
-  if (tet_go == 2) {
-    char buf[16];
-    print_string("Tetris Over! Score: "); itoa(tet_score, buf, 10); print_string(buf);
-    print_string("  Lines: "); itoa(tet_lines, buf, 10); print_string(buf);
-    print_string("  Level: "); itoa(tet_level, buf, 10); print_string(buf);
-    print_string("\n");
-  }
-  print_string("Press any key to continue...");
-  get_char(0);
-  clear_screen();
+  if(tet_go==2){char buf[16];
+    print_string("GAME OVER! Score: ");itoa(tet_sc,buf,10);print_string(buf);
+    print_string("  Lines: ");itoa(tet_ln,buf,10);print_string(buf);
+    print_string("  Level: ");itoa(tet_lv,buf,10);print_string(buf);
+    print_string("  (any key)\n");}
+  else print_string("Quit.\nPress any key...");
+  get_char(0);clear_screen();
 }
 
 // ----- TIC-TAC-TOE -----
